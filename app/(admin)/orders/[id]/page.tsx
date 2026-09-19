@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Order, OrderStatus, Product, Submission } from '@/lib/types'
@@ -29,7 +29,7 @@ export default function OrderDetailPage() {
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState({ name: '', price: '', supplier_url: '' })
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true)
     const supabase = createClient()
     const [{ data: orderData }, { data: productData }, { data: submissionData }] = await Promise.all([
@@ -49,9 +49,9 @@ export default function OrderDetailPage() {
     }
     setImageUrls(nextUrls)
     setLoading(false)
-  }
+  }, [id])
 
-  useEffect(() => { load() }, [id])
+  useEffect(() => { void load() }, [load])
 
   const publicLink = useMemo(() => order ? window.location.origin + '/o/' + order.public_token : '', [order])
 
