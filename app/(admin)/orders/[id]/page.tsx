@@ -33,9 +33,9 @@ export default function OrderDetailPage() {
     setLoading(true)
     const supabase = createClient()
     const [{ data: orderData }, { data: productData }, { data: submissionData }] = await Promise.all([
-      supabase.from('orders').select('*').eq('id', id).single(),
-      supabase.from('products').select('*').eq('order_id', id).order('sort_order'),
-      supabase.from('order_submissions').select('id, order_id, total_quantity, confirmed_at, order_submission_items(*)').eq('order_id', id).maybeSingle(),
+      supabase.from('buyer_orders').select('*').eq('id', id).single(),
+      supabase.from('buyer_products').select('*').eq('order_id', id).order('sort_order'),
+      supabase.from('buyer_submissions').select('id, order_id, total_quantity, confirmed_at, buyer_submission_items(*)').eq('order_id', id).maybeSingle(),
     ])
     setOrder(orderData as Order | null)
     setProducts((productData ?? []) as Product[])
@@ -44,7 +44,7 @@ export default function OrderDetailPage() {
 
     const nextUrls: Record<string, string> = {}
     for (const product of (productData ?? []) as Product[]) {
-      const { data } = await supabase.storage.from('product-images').createSignedUrl(product.image_path, 3600)
+      const { data } = await supabase.storage.from('buyer-product-images').createSignedUrl(product.image_path, 3600)
       if (data?.signedUrl) nextUrls[product.id] = data.signedUrl
     }
     setImageUrls(nextUrls)
@@ -59,7 +59,7 @@ export default function OrderDetailPage() {
     if (!order) return
     setBusy(true); setError('')
     const supabase = createClient()
-    const { error: updateError } = await supabase.from('orders').update({ status: 'waiting' }).eq('id', order.id)
+    const { error: updateError } = await supabase.from('buyer_orders').update({ status: 'waiting' }).eq('id', order.id)
     if (updateError) { setError(updateError.message); setBusy(false); return }
     await load()
     setBusy(false)
@@ -77,7 +77,7 @@ export default function OrderDetailPage() {
     if (!order) return
     setBusy(true); setError('')
     const supabase = createClient()
-    const { error: updateError } = await supabase.from('orders').update({ status }).eq('id', order.id)
+    const { error: updateError } = await supabase.from('buyer_orders').update({ status }).eq('id', order.id)
     if (updateError) setError(updateError.message)
     else await load()
     setBusy(false)
@@ -95,7 +95,7 @@ export default function OrderDetailPage() {
     if (parsedPrice !== null && (!Number.isFinite(parsedPrice) || parsedPrice < 0)) { setError('Цена должна быть числом не меньше 0.'); return }
     setBusy(true); setError('')
     const supabase = createClient()
-    const { error: updateError } = await supabase.from('products').update({
+    const { error: updateError } = await supabase.from('buyer_products').update({
       name: draft.name.trim(),
       price: parsedPrice,
       supplier_url: draft.supplier_url.trim() || null,
@@ -108,9 +108,9 @@ export default function OrderDetailPage() {
   async function deleteProduct(product: Product) {
     if (!confirm('Удалить «' + product.name + '»?')) return
     const supabase = createClient()
-    const { error: deleteError } = await supabase.from('products').delete().eq('id', product.id)
+    const { error: deleteError } = await supabase.from('buyer_products').delete().eq('id', product.id)
     if (deleteError) { setError(deleteError.message); return }
-    await supabase.storage.from('product-images').remove([product.image_path])
+    await supabase.storage.from('buyer-product-images').remove([product.image_path])
     await load()
   }
 
