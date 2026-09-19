@@ -21,7 +21,7 @@ create table if not exists public.products (
   id uuid primary key default gen_random_uuid(),
   order_id uuid not null references public.orders(id) on delete cascade,
   name text not null check (char_length(name) between 1 and 200),
-  price numeric(12,2),
+  price numeric(12,2) check (price is null or price >= 0),
   supplier_url text,
   image_path text not null,
   sort_order integer not null default 0,
