@@ -4,28 +4,41 @@ Mobile-first buyer/client ordering app built with Next.js, TypeScript, Tailwind 
 
 ## MVP flow
 
-Buyer signs in → creates an order → adds product photos/name/optional price/supplier URL → generates a public link → sends it to a client.
+Buyer signs in → creates an order → adds new product photos or picks saved products from the catalog → generates a public link → sends it to a client.
 
-Client opens `/o/<token>` without registration → chooses quantities → taps `Готово` → confirms `Подтвердить заказ`.
+Client opens `/o/<token>` without registration → chooses quantities → sees the final client price → taps `Готово` → confirms `Подтвердить заказ`.
 
-Buyer then sees the order as `Received` with the confirmed items, quantities, total quantity and confirmation time. `Заказано` moves it to `Ordered`; `Завершено` moves it to `Completed`.
+Buyer then sees the order as `Received` with confirmed items, quantities, final amount and confirmation time. `Заказано` moves it to `Ordered`; `Завершено` moves it to `Completed`.
+
+## Buyer pricing
+
+- Exchange rate: **1 CNY = 1.4 TJS**.
+- Cargo: **30 TJS/kg**.
+- Default scarf weight: **80 g**, so default cargo cost is **2.40 TJS per scarf**.
+- Buyer work price is entered separately in TJS per item.
+- Client price = purchase price in CNY × 1.4 + cargo + buyer work price.
+- The client sees only the final client price; the cost breakdown stays in the admin.
+- Weight can be adjusted for a specific product when needed.
+
+## Product catalog
+
+New products are automatically saved to the private buyer catalog. A later order can reuse the same product/photo and pricing without uploading the photo again. Catalog items can be searched, edited, hidden, and restored.
 
 ## Setup
 
 1. Create a Supabase project.
-2. In Supabase SQL Editor run `supabase/migrations/001_init.sql`.
+2. Run the migration files from `supabase/migrations`.
 3. Create the buyer account in Supabase Auth (email + password).
-4. Copy `.env.example` to `.env.local` and fill in the Supabase URL/public key and server secret key.
-5. For optional Telegram notifications, set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
-6. Run `npm install` and `npm run dev`.
+4. Copy `.env.example` to `.env.local` and fill in the Supabase URL/public key and server secret key if needed for local server-only operations.
+5. Run `npm install` and `npm run dev`.
 
-For Vercel, add the same environment variables in Project Settings. `SUPABASE_SECRET_KEY` is server-only and must never be prefixed with `NEXT_PUBLIC_`.
+For Vercel, add the public Supabase variables in Project Settings. Keep any secret key server-only and never prefix it with `NEXT_PUBLIC_`.
 
 ## Security model
 
 Authenticated buyer data is protected with Supabase RLS. Product images live in a private Storage bucket and are only accessed by the buyer through authenticated Storage policies or by the public order page through short-lived signed URLs.
 
-The public client never gets direct table access. A public order token is resolved server-side to exactly one order, and confirmation goes through a server endpoint backed by a Postgres function that accepts only products belonging to that order.
+The public client never gets direct table access. A public order token is resolved server-side to exactly one order, and confirmation goes through the `buyer-public-order` Supabase Edge Function backed by a Postgres function that only accepts products belonging to that order.
 
 ## Stack
 
