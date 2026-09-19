@@ -34,3 +34,7 @@ The public client never gets direct table access. A public order token is resolv
 - TypeScript 5.9.2
 - Tailwind CSS 4.3.3
 - Supabase SSR 0.12.7 / supabase-js 2.116.0
+
+## Deployment note
+
+The public client flow uses the `buyer-public-order` Supabase Edge Function. It runs with Supabase's server secret inside the Edge Function runtime, so the Next.js app does not need a secret key in the browser or repository.
