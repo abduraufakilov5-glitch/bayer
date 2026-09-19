@@ -20,16 +20,37 @@ Buyer then sees the order as `Received` with confirmed items, quantities, final 
 - The client sees only the final client price; the cost breakdown stays in the admin.
 - Weight can be adjusted for a specific product when needed.
 
+## Bulk photo upload
+
+The new-order form supports **up to 30 image files in one selection**. Each image becomes its own product card.
+
+- Maximum size: **8 MB per individual photo**.
+- You can add several batches.
+- The filename is used as the initial product name.
+- New products are automatically saved to the catalog.
+
 ## Product catalog
 
 New products are automatically saved to the private buyer catalog. A later order can reuse the same product/photo and pricing without uploading the photo again. Catalog items can be searched, edited, hidden, and restored.
 
+## iPhone PWA
+
+Bayer is configured as a standalone iPhone web app:
+
+- Web App Manifest.
+- Standalone display mode.
+- Dedicated 512px app icon and 180px Apple home-screen icon.
+- Apple web-app metadata and iPhone safe-area support.
+- Mobile-first admin and client UI.
+
+To install on iPhone, the site must be available over HTTPS. In Safari open Bayer → **Share** → **Add to Home Screen** → **Add**. Apple documents that a site with a web app manifest and `display: standalone` can open as a Home Screen web app without normal browser UI. urlApple Web Apps overviewhttps://developer.apple.com/videos/play/wwdc2023/10120/
+
 ## Setup
 
-1. Create a Supabase project.
+1. Create/use the Supabase project.
 2. Run the migration files from `supabase/migrations`.
 3. Create the buyer account in Supabase Auth (email + password).
-4. Copy `.env.example` to `.env.local` and fill in the Supabase URL/public key and server secret key if needed for local server-only operations.
+4. Copy `.env.example` to `.env.local` for local development if you are not using the built-in live-project fallbacks.
 5. Run `npm install` and `npm run dev`.
 
 For Vercel, add the public Supabase variables in Project Settings. Keep any secret key server-only and never prefix it with `NEXT_PUBLIC_`.
