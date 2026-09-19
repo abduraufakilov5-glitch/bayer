@@ -3,9 +3,9 @@
 import { useMemo, useState } from 'react'
 import type { PublicProduct } from '@/lib/types'
 
-type Props = { token: string; title: string; orderNumber: number; products: PublicProduct[] }
+type Props = { endpoint: string; token: string; title: string; orderNumber: number; products: PublicProduct[] }
 
-export default function ClientOrder({ token, title, orderNumber, products }: Props) {
+export default function ClientOrder({ endpoint, token, title, orderNumber, products }: Props) {
   const [quantities, setQuantities] = useState<Record<string, number>>({})
   const [confirming, setConfirming] = useState(false)
   const [sending, setSending] = useState(false)
@@ -21,7 +21,7 @@ export default function ClientOrder({ token, title, orderNumber, products }: Pro
   async function submit() {
     setSending(true); setError('')
     try {
-      const response = await fetch('/api/public/submit', {
+      const response = await fetch(endpoint, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, items: Object.entries(quantities).map(([product_id, quantity]) => ({ product_id, quantity })).filter((item) => item.quantity > 0) }),
       })
