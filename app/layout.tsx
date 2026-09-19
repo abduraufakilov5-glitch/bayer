@@ -3,7 +3,17 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'Bayer',
-  description: 'Buyer order MVP',
+  description: 'Bayer — заказы для закупок',
+  manifest: '/manifest.webmanifest',
+  icons: {
+    icon: '/icon.png',
+    apple: '/apple-icon.png',
+  },
+  appleWebApp: {
+    capable: true,
+    title: 'Bayer',
+    statusBarStyle: 'black-translucent',
+  },
 }
 
 export const viewport: Viewport = {
@@ -11,6 +21,8 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   viewportFit: 'cover',
+  themeColor: '#f5f5f7',
+  colorScheme: 'light',
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
