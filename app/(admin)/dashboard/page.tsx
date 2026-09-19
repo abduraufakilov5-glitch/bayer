@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Order, OrderStatus } from '@/lib/types'
 
@@ -25,14 +25,14 @@ export default function DashboardPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
 
-  async function loadOrders() {
+  const loadOrders = useCallback(async () => {
     const supabase = createClient()
     const { data } = await supabase.from('orders').select('*').order('created_at', { ascending: false })
     setOrders((data ?? []) as Order[])
     setLoading(false)
-  }
+  }, [])
 
-  useEffect(() => { loadOrders() }, [])
+  useEffect(() => { void loadOrders() }, [loadOrders])
 
   const received = useMemo(() => orders.filter((o) => o.status === 'received').length, [orders])
 
