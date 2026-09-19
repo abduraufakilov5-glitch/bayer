@@ -8,13 +8,13 @@ export const dynamic = 'force-dynamic'
 export default async function PublicOrderPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
   const supabase = createAdminClient()
-  const { data: order } = await supabase.from('orders').select('id, order_number, title, status').eq('public_token', token).single()
+  const { data: order } = await supabase.from('buyer_orders').select('id, order_number, title, status').eq('public_token', token).single()
   if (!order || order.status === 'draft') notFound()
 
-  const { data: products } = await supabase.from('products').select('id, name, price, image_path').eq('order_id', order.id).order('sort_order')
+  const { data: products } = await supabase.from('buyer_products').select('id, name, price, image_path').eq('order_id', order.id).order('sort_order')
   const publicProducts: PublicProduct[] = []
   for (const product of products ?? []) {
-    const { data } = await supabase.storage.from('product-images').createSignedUrl(product.image_path, 60 * 60 * 2)
+    const { data } = await supabase.storage.from('buyer-product-images').createSignedUrl(product.image_path, 60 * 60 * 2)
     if (data?.signedUrl) publicProducts.push({ id: product.id, name: product.name, price: product.price, image_url: data.signedUrl })
   }
 
