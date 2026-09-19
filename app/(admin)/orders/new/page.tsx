@@ -41,17 +41,17 @@ export default function NewOrderPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.replace('/login'); return }
 
-    const { data: order, error: orderError } = await supabase.from('orders').insert({ owner_id: user.id, title: title.trim() }).select('id').single()
+    const { data: order, error: orderError } = await supabase.from('buyer_orders').insert({ owner_id: user.id, title: title.trim() }).select('id').single()
     if (orderError || !order) { setError(orderError?.message || 'Не удалось создать заказ.'); setSaving(false); return }
 
     for (const [index, product] of products.entries()) {
       const file = product.file as File
       const extension = file.name.split('.').pop()?.toLowerCase() || 'jpg'
       const path = user.id + '/' + crypto.randomUUID() + '.' + extension
-      const { error: uploadError } = await supabase.storage.from('product-images').upload(path, file, { contentType: file.type, upsert: false })
+      const { error: uploadError } = await supabase.storage.from('buyer-product-images').upload(path, file, { contentType: file.type, upsert: false })
       if (uploadError) { setError('Не удалось загрузить фото «' + product.name + '». ' + uploadError.message); setSaving(false); return }
 
-      const { error: productError } = await supabase.from('products').insert({
+      const { error: productError } = await supabase.from('buyer_products').insert({
         order_id: order.id,
         name: product.name.trim(),
         price: product.price.trim() ? Number(product.price) : null,
