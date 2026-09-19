@@ -57,6 +57,7 @@ export default function NewOrderPage() {
   const [catalogSearch, setCatalogSearch] = useState('')
   const [catalogOpen, setCatalogOpen] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [saveProgress, setSaveProgress] = useState({ done: 0, total: 0 })
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -174,14 +175,21 @@ export default function NewOrderPage() {
     }
 
     setSaving(true)
+    setSaveProgress({ done: 0, total: products.length })
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.replace('/login'); return }
+    if (!user) { router.replace('/login'); setSaving(false); return }
 
     const { data: order, error: orderError } = await supabase.from('buyer_orders').insert({ owner_id: user.id, title: title.trim() }).select('id').single()
-    if (orderError || !order) { setError(orderError?.message || 'Не удалось создать заказ.'); setSaving(false); return }
+    if (orderError || !order) {
+      setError(orderError?.message || 'Не удалось создать заказ.')
+      setSaving(false)
+      setSaveProgress({ done: 0, total: 0 })
+      return
+    }
 
-    for (const [index, product] of products.entries()) {
+    let completed = 0
+    const processProduct = async (product: DraftProduct, index: number) => {
       let imagePath = ''
       let catalogProductId = product.catalogProductId
       const cny = Number(product.priceCny)
@@ -193,17 +201,17 @@ export default function NewOrderPage() {
       if (product.catalogProductId) {
         const catalogProduct = catalog.find((item) => item.id === product.catalogProductId)
         imagePath = catalogProduct?.image_path ?? ''
-        if (!imagePath) {
-          setError('Не найдено фото сохранённого товара «' + product.name + '».')
-          setSaving(false)
-          return
-        }
+        if (!imagePath) throw new Error('Не найдено фото сохранённого товара «' + product.name + '».')
       } else {
         const file = product.file as File
         const extension = file.name.split('.').pop()?.toLowerCase() || 'jpg'
         imagePath = user.id + '/' + crypto.randomUUID() + '.' + extension
-        const { error: uploadError } = await supabase.storage.from('buyer-product-images').upload(imagePath, file, { contentType: file.type, upsert: false })
-        if (uploadError) { setError('Не удалось загрузить фото «' + product.name + '». ' + uploadError.message); setSaving(false); return }
+
+        const { error: uploadError } = await supabase.storage.from('buyer-product-images').upload(imagePath, file, {
+          contentType: file.type,
+          upsert: false,
+        })
+        if (uploadError) throw new Error('Не удалось загрузить фото «' + product.name + '». ' + uploadError.message)
 
         const { data: catalogRow, error: catalogError } = await supabase.from('buyer_catalog_products').insert({
           owner_id: user.id,
@@ -214,11 +222,7 @@ export default function NewOrderPage() {
           supplier_url: product.supplierUrl.trim() || null,
           image_path: imagePath,
         }).select('id').single()
-        if (catalogError || !catalogRow) {
-          setError('Фото загрузилось, но не удалось сохранить платок в каталог.')
-          setSaving(false)
-          return
-        }
+        if (catalogError || !catalogRow) throw new Error('Фото загрузилось, но не удалось сохранить платок в каталог.')
         catalogProductId = catalogRow.id
       }
 
@@ -235,11 +239,23 @@ export default function NewOrderPage() {
         image_path: imagePath,
         sort_order: index,
       })
-      if (productError) {
-        setError('Не удалось сохранить товар «' + product.name + '». ' + productError.message)
-        setSaving(false)
-        return
+      if (productError) throw new Error('Не удалось сохранить товар «' + product.name + '». ' + productError.message)
+
+      completed += 1
+      setSaveProgress({ done: completed, total: products.length })
+    }
+
+    try {
+      // Upload several photos in parallel so 20–30 files do not wait on each other.
+      const batchSize = 5
+      for (let start = 0; start < products.length; start += batchSize) {
+        const batch = products.slice(start, start + batchSize)
+        await Promise.all(batch.map((product, offset) => processProduct(product, start + offset)))
       }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Не удалось сохранить заказ.')
+      setSaving(false)
+      return
     }
 
     router.push('/orders/' + order.id)
@@ -378,7 +394,7 @@ export default function NewOrderPage() {
       <button type="button" onClick={() => setProducts((items) => [...items, emptyProduct()])} className="w-full rounded-2xl border border-dashed border-neutral-300 bg-white py-3.5 text-sm font-medium shadow-sm transition hover:border-neutral-500">＋ Новый платок вручную</button>
       {error && <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
       <div className="sticky bottom-3 z-10">
-        <button disabled={saving} className="h-14 w-full rounded-2xl bg-black text-sm font-semibold text-white shadow-xl shadow-black/10 transition active:scale-[0.995] disabled:opacity-50">{saving ? 'Сохраняем…' : 'Создать заказ'}</button>
+        <button disabled={saving} className="h-14 w-full rounded-2xl bg-black text-sm font-semibold text-white shadow-xl shadow-black/10 transition active:scale-[0.995] disabled:opacity-50">{saving ? `Сохраняем… ${saveProgress.done}/${saveProgress.total}` : 'Создать заказ'}</button>
       </div>
     </form>
   )
