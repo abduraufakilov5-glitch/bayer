@@ -91,11 +91,13 @@ export default function OrderDetailPage() {
 
   async function saveProduct(product: Product) {
     if (!draft.name.trim()) { setError('Название товара не может быть пустым.'); return }
+    const parsedPrice = draft.price.trim() ? Number(draft.price) : null
+    if (parsedPrice !== null && (!Number.isFinite(parsedPrice) || parsedPrice < 0)) { setError('Цена должна быть числом не меньше 0.'); return }
     setBusy(true); setError('')
     const supabase = createClient()
     const { error: updateError } = await supabase.from('products').update({
       name: draft.name.trim(),
-      price: draft.price.trim() ? Number(draft.price) : null,
+      price: parsedPrice,
       supplier_url: draft.supplier_url.trim() || null,
     }).eq('id', product.id)
     if (updateError) setError(updateError.message)
