@@ -1,24 +1,28 @@
 import { notFound } from 'next/navigation'
-import { createAdminClient } from '@/lib/supabase/admin'
 import type { PublicProduct } from '@/lib/types'
 import ClientOrder from './client-order'
 
 export const dynamic = 'force-dynamic'
 
+const SUPABASE_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://adviprrgbitenfubczfn.supabase.co'
+
 export default async function PublicOrderPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
-  const supabase = createAdminClient()
-  const { data: order } = await supabase.from('buyer_orders').select('id, order_number, title, status').eq('public_token', token).single()
-  if (!order || order.status === 'draft') notFound()
 
-  const { data: products } = await supabase.from('buyer_products').select('id, name, price, image_path').eq('order_id', order.id).order('sort_order')
-  const publicProducts: PublicProduct[] = []
-  for (const product of products ?? []) {
-    const { data } = await supabase.storage.from('buyer-product-images').createSignedUrl(product.image_path, 60 * 60 * 2)
-    if (data?.signedUrl) publicProducts.push({ id: product.id, name: product.name, price: product.price, image_url: data.signedUrl })
+  const response = await fetch(
+    SUPABASE_URL + '/functions/v1/buyer-public-order?token=' + encodeURIComponent(token),
+    { cache: 'no-store' },
+  )
+
+  if (!response.ok) notFound()
+
+  const data = (await response.json()) as {
+    order: { order_number: number; title: string; status: string }
+    products: PublicProduct[]
   }
 
-  if (order.status !== 'waiting') {
+  if (data.order.status !== 'waiting') {
     return (
       <main className="flex min-h-dvh items-center justify-center px-5 py-10">
         <div className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-sm ring-1 ring-black/5">
@@ -30,5 +34,13 @@ export default async function PublicOrderPage({ params }: { params: Promise<{ to
     )
   }
 
-  return <ClientOrder token={token} title={order.title} orderNumber={order.order_number} products={publicProducts} />
+  return (
+    <ClientOrder
+      endpoint={SUPABASE_URL + '/functions/v1/buyer-public-order'}
+      token={token}
+      title={data.order.title}
+      orderNumber={data.order.order_number}
+      products={data.products}
+    />
+  )
 }
