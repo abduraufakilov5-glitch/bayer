@@ -31,6 +31,10 @@ export default function NewOrderPage() {
     setError('')
     const valid = title.trim() && products.every((p) => p.name.trim() && p.file)
     if (!valid) { setError('Укажите название заказа и добавьте фото для каждого товара.'); return }
+    if (products.some((p) => p.price.trim() && (!Number.isFinite(Number(p.price)) || Number(p.price) < 0))) {
+      setError('Цена должна быть числом не меньше 0.')
+      return
+    }
 
     setSaving(true)
     const supabase = createClient()
