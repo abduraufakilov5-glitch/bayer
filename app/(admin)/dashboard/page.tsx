@@ -27,7 +27,7 @@ export default function DashboardPage() {
 
   const loadOrders = useCallback(async () => {
     const supabase = createClient()
-    const { data } = await supabase.from('orders').select('*').order('created_at', { ascending: false })
+    const { data } = await supabase.from('buyer_orders').select('*').order('created_at', { ascending: false })
     setOrders((data ?? []) as Order[])
     setLoading(false)
   }, [])
