@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { CatalogProduct } from '@/lib/types'
@@ -32,6 +32,10 @@ const emptyProduct = (): DraftProduct => ({
   fromCatalog: false,
 })
 
+function fileNameToProductName(fileName: string) {
+  return fileName.replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ').trim() || 'Новый платок'
+}
+
 function calc(product: DraftProduct) {
   const cny = Number(product.priceCny)
   const work = Number(product.workPrice)
@@ -45,6 +49,7 @@ function calc(product: DraftProduct) {
 
 export default function NewOrderPage() {
   const router = useRouter()
+  const bulkInputRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState('')
   const [products, setProducts] = useState<DraftProduct[]>([emptyProduct()])
   const [catalog, setCatalog] = useState<CatalogProduct[]>([])
@@ -107,6 +112,52 @@ export default function NewOrderPage() {
     if (file.size > 8 * 1024 * 1024) { setError('Максимальный размер одного фото — 8 МБ.'); return }
     update(id, { file, preview: URL.createObjectURL(file), fromCatalog: false, catalogProductId: null })
     setError('')
+  }
+
+  function onBulkFiles(fileList: FileList | null) {
+    if (!fileList?.length) return
+
+    const files = Array.from(fileList)
+    if (files.length > 30) {
+      setError('За один раз можно выбрать максимум 30 фото.')
+      if (bulkInputRef.current) bulkInputRef.current.value = ''
+      return
+    }
+
+    const invalidType = files.find((file) => !file.type.startsWith('image/'))
+    if (invalidType) {
+      setError('Все выбранные файлы должны быть изображениями.')
+      if (bulkInputRef.current) bulkInputRef.current.value = ''
+      return
+    }
+
+    const tooLarge = files.find((file) => file.size > 8 * 1024 * 1024)
+    if (tooLarge) {
+      setError('Фото «' + tooLarge.name + '» больше 8 МБ. Каждый файл должен быть не больше 8 МБ.')
+      if (bulkInputRef.current) bulkInputRef.current.value = ''
+      return
+    }
+
+    const batch = files.map((file) => ({
+      id: crypto.randomUUID(),
+      catalogProductId: null,
+      name: fileNameToProductName(file.name),
+      priceCny: '',
+      workPrice: '0',
+      weightGrams: String(DEFAULT_WEIGHT_GRAMS),
+      supplierUrl: '',
+      file,
+      preview: URL.createObjectURL(file),
+      fromCatalog: false,
+    }))
+
+    setProducts((current) => {
+      const isEmptyPlaceholder = current.length === 1 && !current[0].file && !current[0].catalogProductId && !current[0].name.trim()
+      return isEmptyPlaceholder ? batch : [...current, ...batch]
+    })
+    setCatalogOpen(false)
+    setError('')
+    if (bulkInputRef.current) bulkInputRef.current.value = ''
   }
 
   async function submit(event: FormEvent) {
@@ -201,7 +252,7 @@ export default function NewOrderPage() {
         <div>
           <p className="text-sm font-medium text-neutral-500">Новый заказ</p>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight">Соберите закупку</h1>
-          <p className="mt-1 text-sm text-neutral-500">Цены считаются автоматически в сомони.</p>
+          <p className="mt-1 text-sm text-neutral-500">Можно выбрать сразу до 30 фото.</p>
         </div>
         <div className="hidden rounded-2xl bg-white/70 px-3 py-2 text-right text-xs text-neutral-500 shadow-sm ring-1 ring-black/5 sm:block">
           <div>¥ → сомони</div><strong className="text-neutral-900">1 ¥ = 1.4 смн</strong>
@@ -214,13 +265,31 @@ export default function NewOrderPage() {
       </section>
 
       <section className="rounded-[28px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.05)] ring-1 ring-black/5">
-        <button type="button" onClick={() => setCatalogOpen((value) => !value)} className="flex w-full items-center justify-between text-left">
-          <div>
-            <p className="text-sm font-medium text-neutral-500">Сохранённые платки</p>
-            <h2 className="mt-0.5 text-lg font-semibold">Выбрать из каталога</h2>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <button type="button" onClick={() => setCatalogOpen((value) => !value)} className="flex items-center justify-between text-left">
+            <div>
+              <p className="text-sm font-medium text-neutral-500">Сохранённые платки</p>
+              <h2 className="mt-0.5 text-lg font-semibold">Выбрать из каталога</h2>
+            </div>
+            <span className="ml-4 rounded-full bg-neutral-100 px-3 py-1 text-xs font-medium">{catalog.length} шт. {catalogOpen ? '⌃' : '⌄'}</span>
+          </button>
+
+          <div className="relative">
+            <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-black/10 transition active:scale-[0.99]">
+              <span>＋ Массовая загрузка</span>
+              <input
+                ref={bulkInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(event) => onBulkFiles(event.target.files)}
+                className="sr-only"
+              />
+            </label>
+            <p className="mt-1 text-center text-[11px] text-neutral-400">до 30 фото · максимум 8 МБ каждое</p>
           </div>
-          <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-medium">{catalog.length} шт. {catalogOpen ? '⌃' : '⌄'}</span>
-        </button>
+        </div>
+
         {catalogOpen && (
           <div className="mt-4">
             {catalog.length > 0 && (
@@ -306,7 +375,7 @@ export default function NewOrderPage() {
         })}
       </section>
 
-      <button type="button" onClick={() => setProducts((items) => [...items, emptyProduct()])} className="w-full rounded-2xl border border-dashed border-neutral-300 bg-white py-3.5 text-sm font-medium shadow-sm transition hover:border-neutral-500">＋ Новый платок</button>
+      <button type="button" onClick={() => setProducts((items) => [...items, emptyProduct()])} className="w-full rounded-2xl border border-dashed border-neutral-300 bg-white py-3.5 text-sm font-medium shadow-sm transition hover:border-neutral-500">＋ Новый платок вручную</button>
       {error && <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
       <div className="sticky bottom-3 z-10">
         <button disabled={saving} className="h-14 w-full rounded-2xl bg-black text-sm font-semibold text-white shadow-xl shadow-black/10 transition active:scale-[0.995] disabled:opacity-50">{saving ? 'Сохраняем…' : 'Создать заказ'}</button>
