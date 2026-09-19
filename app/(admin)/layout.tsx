@@ -29,7 +29,7 @@ export default async function AdminLayout({ children }: Readonly<{ children: Rea
           </div>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-8">{children}</main>
+      <main className="mx-auto w-full max-w-5xl px-4 py-6 pb-24 sm:px-6 sm:py-8 sm:pb-8">{children}</main>
       <nav className="fixed inset-x-0 bottom-0 z-20 flex justify-center border-t border-black/[0.06] bg-[#f5f5f7]/90 px-4 pb-[calc(.6rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl sm:hidden">
         <div className="grid w-full max-w-md grid-cols-2 gap-2">
           <Link href="/dashboard" className="rounded-2xl px-3 py-2 text-center text-xs font-medium text-neutral-700">Заказы</Link>
