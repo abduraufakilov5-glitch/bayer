@@ -1,0 +1,4 @@
+project_id = "bayer"
+
+[functions.buyer-public-order]
+verify_jwt = false

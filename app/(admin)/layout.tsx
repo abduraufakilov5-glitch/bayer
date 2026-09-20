@@ -1,3 +1,4 @@
+import { getSupabaseConfig } from '@/lib/supabase/config'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
@@ -5,6 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 export const dynamic = 'force-dynamic'
 
 export default async function AdminLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  if (!getSupabaseConfig()) redirect('/login')
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')

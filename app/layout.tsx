@@ -6,8 +6,8 @@ export const metadata: Metadata = {
   description: 'Bayer — заказы для закупок',
   manifest: '/manifest.webmanifest',
   icons: {
-    icon: '/icon.png',
-    apple: '/apple-icon.png',
+    icon: '/icon',
+    apple: '/apple-icon',
   },
   appleWebApp: {
     capable: true,
@@ -19,7 +19,6 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
   viewportFit: 'cover',
   themeColor: '#f5f5f7',
   colorScheme: 'light',

@@ -1,26 +1,34 @@
+import { getSupabaseConfig } from '@/lib/supabase/config'
+import { UUID_PATTERN } from '@/lib/validation'
 import { notFound } from 'next/navigation'
 import type { PublicProduct } from '@/lib/types'
 import ClientOrder from './client-order'
 
 export const dynamic = 'force-dynamic'
 
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://adviprrgbitenfubczfn.supabase.co'
+export const metadata = { robots: { index: false, follow: false }, referrer: 'no-referrer' as const }
 
 export default async function PublicOrderPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
+  if (!UUID_PATTERN.test(token)) notFound()
+  const config = getSupabaseConfig()
+  if (!config) throw new Error('Supabase is not configured')
+  const SUPABASE_URL = config.url
 
   const response = await fetch(
     SUPABASE_URL + '/functions/v1/buyer-public-order?token=' + encodeURIComponent(token),
-    { cache: 'no-store' },
+    { cache: 'no-store', signal: AbortSignal.timeout(15000) },
   )
 
-  if (!response.ok) notFound()
+  if (response.status === 404) notFound()
+  if (!response.ok) throw new Error('Public order service is unavailable')
 
   const data = (await response.json()) as {
     order: { order_number: number; title: string; status: string }
     products: PublicProduct[]
   }
+
+  if (data.order.status === 'draft') notFound()
 
   if (data.order.status !== 'waiting') {
     return (

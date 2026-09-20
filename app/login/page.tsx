@@ -2,10 +2,12 @@
 
 import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { getSupabaseConfig } from '@/lib/supabase/config'
 import { createClient } from '@/lib/supabase/client'
 
 export default function LoginPage() {
   const router = useRouter()
+  const configured = !!getSupabaseConfig()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -16,22 +18,24 @@ export default function LoginPage() {
     const standalone =
       window.matchMedia('(display-mode: standalone)').matches ||
       (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+    // This browser-only value must be read after hydration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsStandalone(standalone)
   }, [])
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
+    if (!configured || loading) return
     setLoading(true)
     setError('')
-    const supabase = createClient()
-    const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
-    if (authError) {
-      setError(authError.message)
-      setLoading(false)
-      return
-    }
-    router.replace('/dashboard')
-    router.refresh()
+    try {
+      const supabase = createClient()
+      const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+      if (authError) { setError('Не удалось войти. Проверьте email и пароль.'); return }
+      router.replace('/dashboard')
+      router.refresh()
+    } catch { setError('Нет подключения к серверу. Попробуйте снова.') }
+    finally { setLoading(false) }
   }
 
   return (
@@ -57,12 +61,13 @@ export default function LoginPage() {
           </div>
         )}
 
+        {!configured && <p role="status" className="rounded-2xl bg-amber-50 p-4 text-sm text-amber-900">Приложение ещё не настроено. Добавьте NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY из вашего проекта Supabase в .env.local или настройки хостинга.</p>}
         <div className="space-y-3">
-          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Email" autoComplete="email" required className="h-12 w-full rounded-2xl border border-neutral-200 bg-white px-4 outline-none focus:border-black" />
-          <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Пароль" autoComplete="current-password" required className="h-12 w-full rounded-2xl border border-neutral-200 bg-white px-4 outline-none focus:border-black" />
+          <input aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Email" autoComplete="email" required className="h-12 w-full rounded-2xl border border-neutral-200 bg-white px-4 outline-none focus:border-black" />
+          <input aria-label="Пароль" value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Пароль" autoComplete="current-password" required className="h-12 w-full rounded-2xl border border-neutral-200 bg-white px-4 outline-none focus:border-black" />
         </div>
         {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
-        <button disabled={loading} className="h-12 w-full rounded-2xl bg-black font-medium text-white shadow-lg shadow-black/10 disabled:opacity-50">{loading ? 'Входим…' : 'Войти'}</button>
+        <button disabled={loading || !configured} className="h-12 w-full rounded-2xl bg-black font-medium text-white shadow-lg shadow-black/10 disabled:opacity-50">{loading ? 'Входим…' : 'Войти'}</button>
       </form>
     </main>
   )

@@ -1,74 +1,78 @@
-# Bayer — Buyer Order MVP
+# Bayer — кабинет байера
 
-Mobile-first buyer/client ordering app built with Next.js, TypeScript, Tailwind CSS and Supabase.
+Мобильное приложение на Next.js, React, TypeScript, Tailwind CSS и Supabase: байер собирает заказ из фотографий или каталога, а клиент выбирает товары и подтверждает заказ без регистрации.
 
-## MVP flow
+## Возможности
 
-Buyer signs in → creates an order → adds new product photos or picks saved products from the catalog → generates a public link → sends it to a client.
+- Каталог с поиском, редактированием цен, веса, ссылки поставщика и скрытием товаров.
+- Загрузка до 30 фотографий за раз, по 8 МБ; до 300 товаров в заказе.
+- Расчёт: закупка в CNY × 1,4 + 30 TJS/кг + работа байера. Вес по умолчанию — 80 г. Клиент видит только итоговую цену.
+- Поиск заказов по названию и номеру, фильтры статусов, сортировка, страницы по 20 заказов.
+- CSV текущей выборки заказов и отдельный CSV подтверждённого состава. UTF-8 с BOM и защитой от формул в названиях.
+- Клиентская корзина сохраняется в браузере отдельно для каждой ссылки. При отключённом localStorage заказ продолжает работать без сохранения.
+- Поиск товаров, фильтр выбранного, подробная проверка состава и суммы перед отправкой, квитанция после подтверждения.
+- Повтор того же подтверждения после потери ответа безопасен: база возвращает прежний результат.
+- Установка на домашний экран iPhone через Safari → «Поделиться» → «На экран Домой». Это не офлайн-приложение: отправка требует интернет.
 
-Client opens `/o/<token>` without registration → chooses quantities → sees the final client price → taps `Готово` → confirms `Подтвердить заказ`.
+## Жизненный цикл
 
-Buyer then sees the order as `Received` with confirmed items, quantities, final amount and confirmation time. `Заказано` moves it to `Ordered`; `Завершено` moves it to `Completed`.
+`Черновик → Ждём клиента → Подтверждён → Заказано → Завершено`.
 
-## Buyer pricing
+Состав и цены редактируются **только в черновике**. После публикации они фиксируются и защищаются триггерами базы. Для другого состава создайте новый заказ. Публикация пустого заказа и заказа без цен запрещена. Клиент выбирает от 1 до 99 штук каждого товара.
 
-- Exchange rate: **1 CNY = 1.4 TJS**.
-- Cargo: **30 TJS/kg**.
-- Default scarf weight: **80 g**, so default cargo cost is **2.40 TJS per scarf**.
-- Buyer work price is entered separately in TJS per item.
-- Client price = purchase price in CNY × 1.4 + cargo + buyer work price.
-- The client sees only the final client price; the cost breakdown stays in the admin.
-- Weight can be adjusted for a specific product when needed.
+Если создание заказа завершается ошибкой, приложение дожидается всех текущих загрузок и пытается удалить созданный черновик, новые записи каталога и новые изображения. Если очистка не удалась, интерфейс сообщает об оставшихся данных. Это компенсирующая очистка, а не единая транзакция между Storage и PostgreSQL.
 
-## Bulk photo upload
+## Установка
 
-The new-order form supports **up to 30 image files in one selection**. Each image becomes its own product card.
+Требуется Node.js 22.18+ (проверено также на Node.js 24).
 
-- Maximum size: **8 MB per individual photo**.
-- You can add several batches.
-- The filename is used as the initial product name.
-- New products are automatically saved to the catalog.
+1. Выполните `npm ci`.
+2. Скопируйте `.env.example` в `.env.local` и укажите URL и publishable key **своего** Supabase-проекта. Встроенных ссылок на рабочую базу больше нет.
+3. В новом Supabase-проекте примените SQL-файлы в порядке:
+   - `supabase/migrations/001_init.sql`;
+   - `supabase/migrations/002_buyer_catalog_pricing.sql`;
+   - `supabase/migrations/20260920084117_harden_order_workflow.sql`.
+4. Создайте пользователя байера в Supabase Auth (email + пароль). Если кабинет закрытый, отключите публичную регистрацию в настройках Auth.
+5. Войдите в Supabase CLI (`npx supabase login`) и разверните публичный обработчик:
 
-## Product catalog
+   ```sh
+   npx supabase functions deploy buyer-public-order --project-ref YOUR_PROJECT_REF --use-api
+   ```
 
-New products are automatically saved to the private buyer catalog. A later order can reuse the same product/photo and pricing without uploading the photo again. Catalog items can be searched, edited, hidden, and restored.
+   `supabase/config.toml` отключает проверку JWT для этой функции: клиент без аккаунта получает доступ по случайному токену конкретного заказа. `SUPABASE_URL` и `SUPABASE_SERVICE_ROLE_KEY` предоставляются средой Supabase Edge Functions. Секретный ключ не нужен в Next.js и не должен попадать в `NEXT_PUBLIC_`.
+6. Выполните `npm run dev` и откройте локальный адрес из терминала.
 
-## iPhone PWA
+Без переменных окружения страница входа показывает подсказку настройки, а не подключается к чужой базе. На хостинге задайте обе публичные переменные **до сборки**.
 
-Bayer is configured as a standalone iPhone web app:
+## Обновление существующей установки
 
-- Web App Manifest.
-- Standalone display mode.
-- Dedicated 512px app icon and 180px Apple home-screen icon.
-- Apple web-app metadata and iPhone safe-area support.
-- Mobile-first admin and client UI.
+1. Проверьте резервную копию базы и существующие данные на тестовом окружении.
+2. Если первые две миграции уже применены, примените только `20260920084117_harden_order_workflow.sql`. Исправленная `001_init.sql` предназначена для новых установок; повторно выполнять её на рабочей базе не нужно.
+3. Разверните `buyer-public-order` из этого репозитория и обновите Next.js с корректными переменными окружения.
+4. Проверьте цикл на тестовом заказе: черновик → публикация → подтверждение → закупка → завершение.
 
-To install on iPhone, the site must be available over HTTPS. In Safari open Bayer → **Share** → **Add to Home Screen** → **Add**. Apple documents that a site with a web app manifest and `display: standalone` can open as a Home Screen web app without normal browser UI. urlApple Web Apps overviewhttps://developer.apple.com/videos/play/wwdc2023/10120/
+Сначала обновляется база, затем Edge Function, затем интерфейс. Новая функция рассчитывает на новую миграцию для строгой проверки данных и повторной отправки. Миграция не пересчитывает старые заказы и не меняет их статусы. Заказы, опубликованные ранее, тоже становятся недоступными для редактирования.
 
-## Setup
+## Проверки
 
-1. Create/use the Supabase project.
-2. Run the migration files from `supabase/migrations`.
-3. Create the buyer account in Supabase Auth (email + password).
-4. Copy `.env.example` to `.env.local` for local development if you are not using the built-in live-project fallbacks.
-5. Run `npm install` and `npm run dev`.
+```sh
+npm run check               # ESLint, TypeScript, unit/API/PostgreSQL tests
+npm run build               # production build
+npx playwright install chromium
+npm run test:e2e             # desktop + mobile browser scenarios
+npm audit
+```
 
-For Vercel, add the public Supabase variables in Project Settings. Keep any secret key server-only and never prefix it with `NEXT_PUBLIC_`.
+PostgreSQL-тесты запускают настоящие SQL-миграции, RLS и функции в PGlite с минимальными схемами `auth`/`storage`; расширение `pgcrypto` пропускается, используется встроенный `gen_random_uuid`. Браузерные тесты поднимают локальный HTTP-макет Supabase на 54329 и Next.js на 3100. Они не подключаются к рабочему проекту. Мобильный профиль эмулирует iPhone в Chromium, не заменяет проверку Safari на устройстве.
 
-## Security model
+Готовая расширенная конфигурация GitHub Actions находится в `docs/ci-workflow.yml`: она запускает проверки через `npm ci` и сохраняет trace-артефакты при ошибках браузерных тестов. Чтобы включить её, замените `.github/workflows/ci.yml` этим файлом через GitHub или токен с правом `workflow`. Текущий токен не разрешил менять workflow; действующий CI оставлен прежним (установка и сборка).
 
-Authenticated buyer data is protected with Supabase RLS. Product images live in a private Storage bucket and are only accessed by the buyer through authenticated Storage policies or by the public order page through short-lived signed URLs.
+## Доступ к данным
 
-The public client never gets direct table access. A public order token is resolved server-side to exactly one order, and confirmation goes through the `buyer-public-order` Supabase Edge Function backed by a Postgres function that only accepts products belonging to that order.
+- Все пользовательские таблицы защищены RLS по владельцу. `anon` не читает таблицы и не вызывает функцию подтверждения напрямую.
+- Публичный API возвращает только название заказа, номер, статус, товары с конечными ценами и временные ссылки на изображения.
+- `submit_buyer_order` доступна только `service_role`; проверяет состав, количество, принадлежность товаров, фиксирует цены и блокирует строку заказа на время транзакции.
+- Токен в ссылке даёт доступ к заказу. Публичная страница отключает индексацию и передачу Referer; ответы API не кешируются.
+- Storage-бакет приватный; публичные ссылки на фото действуют час. При долгом просмотре для обновления фото нужно перезагрузить страницу, выбор сохранится.
 
-## Stack
-
-- Next.js 16.3.3
-- React 19.3.0
-- TypeScript 5.9.2
-- Tailwind CSS 4.3.3
-- Supabase SSR 0.12.7 / supabase-js 2.116.0
-
-## Deployment note
-
-The public client flow uses the `buyer-public-order` Supabase Edge Function. It runs with Supabase's server secret inside the Edge Function runtime, so the Next.js app does not need a secret key in the browser or repository.
+Подробный аудит и оставшиеся направления развития: [docs/AUDIT.md](docs/AUDIT.md).

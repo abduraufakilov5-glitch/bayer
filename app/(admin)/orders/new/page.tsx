@@ -2,6 +2,8 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
+import { parseDecimal, validPricing, safeSupplierUrl, MAX_ORDER_PRODUCTS } from '@/lib/validation'
 import { createClient } from '@/lib/supabase/client'
 import type { CatalogProduct } from '@/lib/types'
 import { calculateCargo, calculateClientPrice, DEFAULT_WEIGHT_GRAMS, formatSomoni } from '@/lib/pricing'
@@ -37,10 +39,10 @@ function fileNameToProductName(fileName: string) {
 }
 
 function calc(product: DraftProduct) {
-  const cny = Number(product.priceCny)
-  const work = Number(product.workPrice)
+  const cny = parseDecimal(product.priceCny)
+  const work = parseDecimal(product.workPrice)
   const weight = Number(product.weightGrams)
-  if (!Number.isFinite(cny) || cny < 0 || !Number.isFinite(work) || work < 0 || !Number.isFinite(weight) || weight <= 0) return null
+  if (!validPricing('Товар', cny, work, weight)) return null
   return {
     cargo: calculateCargo(weight),
     client: calculateClientPrice(cny, work, weight),
@@ -51,7 +53,9 @@ export default function NewOrderPage() {
   const router = useRouter()
   const bulkInputRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState('')
-  const [products, setProducts] = useState<DraftProduct[]>([emptyProduct()])
+  const [products, setProducts] = useState<DraftProduct[]>([])
+  const savingRef = useRef(false)
+  const previewUrls = useRef(new Set<string>())
   const [catalog, setCatalog] = useState<CatalogProduct[]>([])
   const [catalogUrls, setCatalogUrls] = useState<Record<string, string>>({})
   const [catalogSearch, setCatalogSearch] = useState('')
@@ -61,9 +65,21 @@ export default function NewOrderPage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
+    const urls = previewUrls.current
+    return () => { urls.forEach(url => URL.revokeObjectURL(url)) }
+  }, [])
+
+  function previewFor(file: File) {
+    const url = URL.createObjectURL(file)
+    previewUrls.current.add(url)
+    return url
+  }
+
+  useEffect(() => {
     async function loadCatalog() {
       const supabase = createClient()
-      const { data } = await supabase.from('buyer_catalog_products').select('*').eq('active', true).order('created_at', { ascending: false })
+      const { data, error: loadError } = await supabase.from('buyer_catalog_products').select('*').eq('active', true).order('created_at', { ascending: false })
+      if (loadError) { setError('Не удалось загрузить каталог. Обновите страницу.'); return }
       const rows = (data ?? []) as CatalogProduct[]
       setCatalog(rows)
       const urls: Record<string, string> = {}
@@ -87,6 +103,7 @@ export default function NewOrderPage() {
   }
 
   function addFromCatalog(product: CatalogProduct) {
+    if (saving || products.length >= MAX_ORDER_PRODUCTS) return
     if (products.some((item) => item.catalogProductId === product.id)) {
       setError('Этот платок уже добавлен в заказ.')
       return
@@ -108,19 +125,19 @@ export default function NewOrderPage() {
   }
 
   function onFile(id: string, file: File | null) {
-    if (!file) return
+    if (!file || saving) return
     if (!file.type.startsWith('image/')) { setError('Фото должно быть изображением.'); return }
     if (file.size > 8 * 1024 * 1024) { setError('Максимальный размер одного фото — 8 МБ.'); return }
-    update(id, { file, preview: URL.createObjectURL(file), fromCatalog: false, catalogProductId: null })
+    update(id, { file, preview: previewFor(file), fromCatalog: false, catalogProductId: null })
     setError('')
   }
 
   function onBulkFiles(fileList: FileList | null) {
-    if (!fileList?.length) return
+    if (!fileList?.length || saving) return
 
     const files = Array.from(fileList)
-    if (files.length > 30) {
-      setError('За один раз можно выбрать максимум 30 фото.')
+    if (files.length > 30 || products.length + files.length > MAX_ORDER_PRODUCTS) {
+      setError('За один раз — максимум 30 фото, в заказе — максимум 300 товаров.')
       if (bulkInputRef.current) bulkInputRef.current.value = ''
       return
     }
@@ -148,7 +165,7 @@ export default function NewOrderPage() {
       weightGrams: String(DEFAULT_WEIGHT_GRAMS),
       supplierUrl: '',
       file,
-      preview: URL.createObjectURL(file),
+      preview: previewFor(file),
       fromCatalog: false,
     }))
 
@@ -163,37 +180,41 @@ export default function NewOrderPage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault()
+    if (savingRef.current) return
     setError('')
-    const valid = title.trim() && products.length > 0 && products.every((p) => p.name.trim() && (p.file || p.catalogProductId))
+    const valid = title.trim() && title.trim().length <= 140 && products.length > 0 && products.length <= MAX_ORDER_PRODUCTS && products.every((p) => p.name.trim() && (p.file || p.catalogProductId))
     if (!valid) { setError('Укажите название заказа и добавьте фото или сохранённый товар для каждого платка.'); return }
     if (products.some((p) => {
-      const cny = Number(p.priceCny), work = Number(p.workPrice), weight = Number(p.weightGrams)
-      return !Number.isFinite(cny) || cny < 0 || !Number.isFinite(work) || work < 0 || !Number.isFinite(weight) || weight <= 0
+      const cny = parseDecimal(p.priceCny), work = parseDecimal(p.workPrice), weight = Number(p.weightGrams)
+      return !validPricing(p.name, cny, work, weight) || (!!p.supplierUrl.trim() && !safeSupplierUrl(p.supplierUrl))
     })) {
       setError('Проверьте цену в юанях, работу и вес.')
       return
     }
 
+    savingRef.current = true
     setSaving(true)
     setSaveProgress({ done: 0, total: products.length })
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.replace('/login'); setSaving(false); return }
+    if (!user) { router.replace('/login'); setSaving(false); savingRef.current = false; return }
 
     const { data: order, error: orderError } = await supabase.from('buyer_orders').insert({ owner_id: user.id, title: title.trim() }).select('id').single()
     if (orderError || !order) {
       setError(orderError?.message || 'Не удалось создать заказ.')
-      setSaving(false)
+      setSaving(false); savingRef.current = false
       setSaveProgress({ done: 0, total: 0 })
       return
     }
 
     let completed = 0
+    const newCatalogIds: string[] = []
+    const uploadedPaths: string[] = []
     const processProduct = async (product: DraftProduct, index: number) => {
       let imagePath = ''
       let catalogProductId = product.catalogProductId
-      const cny = Number(product.priceCny)
-      const work = Number(product.workPrice)
+      const cny = parseDecimal(product.priceCny)
+      const work = parseDecimal(product.workPrice)
       const weight = Number(product.weightGrams)
       const cargo = calculateCargo(weight)
       const clientPrice = calculateClientPrice(cny, work, weight)
@@ -213,17 +234,19 @@ export default function NewOrderPage() {
         })
         if (uploadError) throw new Error('Не удалось загрузить фото «' + product.name + '». ' + uploadError.message)
 
+        uploadedPaths.push(imagePath)
         const { data: catalogRow, error: catalogError } = await supabase.from('buyer_catalog_products').insert({
           owner_id: user.id,
           name: product.name.trim(),
           price_cny: cny,
           work_price_somoni: work,
           weight_grams: weight,
-          supplier_url: product.supplierUrl.trim() || null,
+          supplier_url: safeSupplierUrl(product.supplierUrl),
           image_path: imagePath,
         }).select('id').single()
         if (catalogError || !catalogRow) throw new Error('Фото загрузилось, но не удалось сохранить платок в каталог.')
         catalogProductId = catalogRow.id
+        newCatalogIds.push(catalogRow.id)
       }
 
       const { error: productError } = await supabase.from('buyer_products').insert({
@@ -235,7 +258,7 @@ export default function NewOrderPage() {
         cargo_cost: cargo,
         work_price_somoni: work,
         weight_grams: weight,
-        supplier_url: product.supplierUrl.trim() || null,
+        supplier_url: safeSupplierUrl(product.supplierUrl),
         image_path: imagePath,
         sort_order: index,
       })
@@ -250,11 +273,24 @@ export default function NewOrderPage() {
       const batchSize = 5
       for (let start = 0; start < products.length; start += batchSize) {
         const batch = products.slice(start, start + batchSize)
-        await Promise.all(batch.map((product, offset) => processProduct(product, start + offset)))
+        // Wait for every in-flight write before cleanup; Promise.all rejects too early.
+        const results = await Promise.allSettled(batch.map((product, offset) => processProduct(product, start + offset)))
+        const failed = results.find(result => result.status === 'rejected')
+        if (failed?.status === 'rejected') throw failed.reason
       }
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Не удалось сохранить заказ.')
-      setSaving(false)
+      const { error: rollbackError } = await supabase.from('buyer_orders').delete().eq('id', order.id)
+      let cleanupFailed = !!rollbackError
+      if (!rollbackError) {
+        const catalogCleanup = newCatalogIds.length ? await supabase.from('buyer_catalog_products').delete().in('id', newCatalogIds) : { error: null }
+        cleanupFailed = !!catalogCleanup.error
+        if (!catalogCleanup.error && uploadedPaths.length) {
+          const filesCleanup = await supabase.storage.from('buyer-product-images').remove(uploadedPaths)
+          cleanupFailed ||= !!filesCleanup.error
+        }
+      }
+      setError((saveError instanceof Error ? saveError.message : 'Не удалось сохранить заказ.') + (cleanupFailed ? ' Часть данных осталась в кабинете. Проверьте заказы и каталог перед повтором.' : ' Изменения отменены, можно повторить.'))
+      setSaving(false); savingRef.current = false
       return
     }
 
@@ -264,6 +300,7 @@ export default function NewOrderPage() {
 
   return (
     <form onSubmit={submit} className="mx-auto max-w-4xl space-y-5">
+      <fieldset disabled={saving} className="min-w-0 space-y-5 border-0 p-0">
       <div className="flex items-end justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-neutral-500">Новый заказ</p>
@@ -276,8 +313,8 @@ export default function NewOrderPage() {
       </div>
 
       <section className="rounded-[28px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.05)] ring-1 ring-black/5">
-        <label className="text-sm font-medium">Название заказа</label>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Например: Осенняя закупка" required className="mt-2 h-13 w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 outline-none transition focus:border-black focus:bg-white" />
+        <label htmlFor="order-title" className="text-sm font-medium">Название заказа</label>
+        <input id="order-title" maxLength={140} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Например: Осенняя закупка" required className="mt-2 h-13 w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 outline-none transition focus:border-black focus:bg-white" />
       </section>
 
       <section className="rounded-[28px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.05)] ring-1 ring-black/5">
@@ -309,16 +346,16 @@ export default function NewOrderPage() {
         {catalogOpen && (
           <div className="mt-4">
             {catalog.length > 0 && (
-              <input value={catalogSearch} onChange={(e) => setCatalogSearch(e.target.value)} placeholder="Поиск по каталогу…" className="mb-3 h-11 w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 text-sm outline-none focus:border-black" />
+              <input aria-label="Поиск в каталоге" value={catalogSearch} onChange={(e) => setCatalogSearch(e.target.value)} placeholder="Поиск по каталогу…" className="mb-3 h-11 w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 text-sm outline-none focus:border-black" />
             )}
             {filteredCatalog.length === 0 ? (
-              <div className="rounded-2xl bg-neutral-50 p-5 text-sm text-neutral-500">Каталог пока пуст. Первый новый платок ниже автоматически сохранится.</div>
+              <div className="rounded-2xl bg-neutral-50 p-5 text-sm text-neutral-500">{catalogSearch.trim() ? 'По вашему запросу ничего не найдено.' : 'Каталог пока пуст. Добавьте фото нового товара.'}</div>
             ) : (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {filteredCatalog.map((item) => (
                   <button key={item.id} type="button" onClick={() => addFromCatalog(item)} className="overflow-hidden rounded-2xl bg-neutral-50 text-left ring-1 ring-black/5 transition hover:ring-black/15 active:scale-[0.99]">
                     <div className="aspect-square bg-neutral-100">
-                      {catalogUrls[item.id] && <img src={catalogUrls[item.id]} alt="" className="h-full w-full object-cover" />}
+                      {catalogUrls[item.id] && <Image unoptimized width={400} height={400} src={catalogUrls[item.id]} alt="Фото товара" className="h-full w-full object-cover" />}
                     </div>
                     <div className="p-3">
                       <div className="truncate text-sm font-medium">{item.name}</div>
@@ -343,16 +380,16 @@ export default function NewOrderPage() {
                   <span className="text-sm font-semibold">Платок</span>
                   {product.fromCatalog && <span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700">из каталога</span>}
                 </div>
-                {products.length > 1 && <button type="button" onClick={() => setProducts((items) => items.filter((x) => x.id !== product.id))} className="text-xs font-medium text-red-600">Удалить</button>}
+                {products.length > 0 && <button type="button" onClick={() => setProducts((items) => items.filter((x) => x.id !== product.id))} className="text-xs font-medium text-red-600">Удалить</button>}
               </div>
 
               <div className="grid gap-5 sm:grid-cols-[145px_1fr]">
                 <label className={"relative flex aspect-square cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-neutral-100 " + (product.fromCatalog ? 'cursor-default' : '')}>
-                  {product.preview ? <img src={product.preview} alt="" className="h-full w-full object-cover" /> : <div className="text-center"><div className="text-2xl">＋</div><span className="text-xs text-neutral-500">Добавить фото</span></div>}
+                  {product.preview ? <Image unoptimized width={400} height={400} src={product.preview} alt="Фото товара" className="h-full w-full object-cover" /> : <div className="text-center"><div className="text-2xl">＋</div><span className="text-xs text-neutral-500">Добавить фото</span></div>}
                   {!product.fromCatalog && <input type="file" accept="image/*" onChange={(e) => onFile(product.id, e.target.files?.[0] || null)} className="sr-only" />}
                 </label>
                 <div className="space-y-3">
-                  <input value={product.name} onChange={(e) => update(product.id, { name: e.target.value })} placeholder="Название / модель" className="h-12 w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 outline-none focus:border-black focus:bg-white" />
+                  <input aria-label="Название товара" maxLength={200} value={product.name} onChange={(e) => update(product.id, { name: e.target.value })} placeholder="Название / модель" className="h-12 w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 outline-none focus:border-black focus:bg-white" />
                   <div className="grid gap-3 sm:grid-cols-3">
                     <label className="block">
                       <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-neutral-400">Закупка, ¥</span>
@@ -372,9 +409,9 @@ export default function NewOrderPage() {
                   {totals ? (
                     <div className="rounded-2xl bg-neutral-950 p-4 text-white">
                       <div className="grid grid-cols-3 gap-3 text-xs text-white/60">
-                        <div>Юань<div className="mt-1 text-sm font-semibold text-white">{formatSomoni(Number(product.priceCny) * 1.4)}</div></div>
+                        <div>Юань<div className="mt-1 text-sm font-semibold text-white">{formatSomoni(parseDecimal(product.priceCny) * 1.4)}</div></div>
                         <div>Карго<div className="mt-1 text-sm font-semibold text-white">{formatSomoni(totals.cargo)}</div></div>
-                        <div>Работа<div className="mt-1 text-sm font-semibold text-white">{formatSomoni(Number(product.workPrice))}</div></div>
+                        <div>Работа<div className="mt-1 text-sm font-semibold text-white">{formatSomoni(parseDecimal(product.workPrice))}</div></div>
                       </div>
                       <div className="mt-3 border-t border-white/10 pt-3">
                         <div className="text-xs text-white/60">Цена для клиента</div>
@@ -391,11 +428,12 @@ export default function NewOrderPage() {
         })}
       </section>
 
-      <button type="button" onClick={() => setProducts((items) => [...items, emptyProduct()])} className="w-full rounded-2xl border border-dashed border-neutral-300 bg-white py-3.5 text-sm font-medium shadow-sm transition hover:border-neutral-500">＋ Новый платок вручную</button>
-      {error && <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      <button type="button" disabled={products.length >= MAX_ORDER_PRODUCTS} onClick={() => setProducts((items) => [...items, emptyProduct()])} className="w-full rounded-2xl border border-dashed border-neutral-300 bg-white py-3.5 text-sm font-medium shadow-sm transition hover:border-neutral-500">＋ Новый платок вручную</button>
+      {error && <div role="alert" className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
       <div className="sticky bottom-3 z-10">
         <button disabled={saving} className="h-14 w-full rounded-2xl bg-black text-sm font-semibold text-white shadow-xl shadow-black/10 transition active:scale-[0.995] disabled:opacity-50">{saving ? `Сохраняем… ${saveProgress.done}/${saveProgress.total}` : 'Создать заказ'}</button>
       </div>
+      </fieldset>
     </form>
   )
 }

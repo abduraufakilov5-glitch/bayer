@@ -6,3 +6,8 @@ out/
 .env.*.local
 .DS_Store
 npm-debug.log*
+
+playwright-report/
+test-results/
+*.tsbuildinfo
+supabase/.temp/

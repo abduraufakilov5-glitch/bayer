@@ -1,6 +1,8 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
+import { parseDecimal, validPricing, safeSupplierUrl } from '@/lib/validation'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { CatalogProduct } from '@/lib/types'
@@ -17,11 +19,12 @@ export default function CatalogPage() {
   const [draft, setDraft] = useState<Draft>({ name: '', price_cny: '', work_price_somoni: '0', weight_grams: String(DEFAULT_WEIGHT_GRAMS), supplier_url: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
 
   async function load() {
     const supabase = createClient()
     const { data, error: loadError } = await supabase.from('buyer_catalog_products').select('*').order('created_at', { ascending: false })
-    if (loadError) { setError(loadError.message); return }
+    if (loadError) { setError(loadError.message); setLoading(false); return }
     const rows = (data ?? []) as CatalogProduct[]
     setItems(rows)
     const signed: Record<string, string> = {}
@@ -30,8 +33,11 @@ export default function CatalogPage() {
       if (file?.signedUrl) signed[item.id] = file.signedUrl
     }))
     setUrls(signed)
+    setLoading(false)
   }
 
+  // Fetch external data on mount; state is populated from the asynchronous response.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load() }, [])
 
   const visible = useMemo(() => {
@@ -52,10 +58,10 @@ export default function CatalogPage() {
   }
 
   async function saveEdit(item: CatalogProduct) {
-    const cny = Number(draft.price_cny)
-    const work = Number(draft.work_price_somoni)
+    const cny = parseDecimal(draft.price_cny)
+    const work = parseDecimal(draft.work_price_somoni)
     const weight = Number(draft.weight_grams)
-    if (!draft.name.trim() || !Number.isFinite(cny) || cny < 0 || !Number.isFinite(work) || work < 0 || !Number.isFinite(weight) || weight <= 0) {
+    if (!validPricing(draft.name, cny, work, weight) || (!!draft.supplier_url.trim() && !safeSupplierUrl(draft.supplier_url))) {
       setError('Проверьте название, цену, работу и вес.')
       return
     }
@@ -66,7 +72,7 @@ export default function CatalogPage() {
       price_cny: cny,
       work_price_somoni: work,
       weight_grams: weight,
-      supplier_url: draft.supplier_url.trim() || null,
+      supplier_url: safeSupplierUrl(draft.supplier_url),
     }).eq('id', item.id)
     if (updateError) setError(updateError.message)
     else { setEditing(null); await load() }
@@ -96,16 +102,16 @@ export default function CatalogPage() {
           <button onClick={() => setShowArchived(false)} className={"flex-1 rounded-xl px-3 py-2.5 text-sm font-medium " + (!showArchived ? 'bg-white shadow-sm' : 'text-neutral-500')}>Активные · {items.filter((x) => x.active).length}</button>
           <button onClick={() => setShowArchived(true)} className={"flex-1 rounded-xl px-3 py-2.5 text-sm font-medium " + (showArchived ? 'bg-white shadow-sm' : 'text-neutral-500')}>Скрытые · {items.filter((x) => !x.active).length}</button>
         </div>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск платка…" className="mt-3 h-12 w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 outline-none focus:border-black focus:bg-white" />
+        <input aria-label="Поиск в каталоге" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск платка…" className="mt-3 h-12 w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 outline-none focus:border-black focus:bg-white" />
       </section>
 
-      {error && <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && <div role="alert" className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
-      {visible.length === 0 ? (
+      {loading ? <p role="status">Загрузка каталога…</p> : error && !items.length ? <button onClick={() => { setError(''); setLoading(true); void load() }}>Повторить загрузку</button> : visible.length === 0 ? (
         <div className="rounded-[28px] border border-dashed border-neutral-300 bg-white p-10 text-center">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-100 text-2xl">▱</div>
-          <h2 className="mt-4 font-semibold">{showArchived ? 'Нет скрытых платков' : 'Каталог пока пуст'}</h2>
-          <p className="mt-1 text-sm text-neutral-500">Добавь первый новый платок при создании заказа.</p>
+          <h2 className="mt-4 font-semibold">{search.trim() ? 'Ничего не найдено' : showArchived ? 'Нет скрытых платков' : 'Каталог пока пуст'}</h2>
+          <p className="mt-1 text-sm text-neutral-500">{search.trim() ? 'Попробуйте другое название.' : 'Добавьте товар при создании заказа.'}</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
@@ -114,15 +120,16 @@ export default function CatalogPage() {
             return (
               <article key={item.id} className="overflow-hidden rounded-[24px] bg-white shadow-[0_8px_30px_rgba(0,0,0,0.05)] ring-1 ring-black/5">
                 <div className="aspect-square bg-neutral-100">
-                  {urls[item.id] && <img src={urls[item.id]} alt={item.name} className="h-full w-full object-cover" />}
+                  {urls[item.id] && <Image unoptimized width={400} height={400} src={urls[item.id]} alt={item.name} className="h-full w-full object-cover" />}
                 </div>
                 <div className="p-3.5">
                   {editing === item.id ? (
                     <div className="space-y-2">
-                      <input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} className="h-10 w-full rounded-xl border border-neutral-200 px-2.5 text-sm" />
-                      <input value={draft.price_cny} onChange={(e) => setDraft((d) => ({ ...d, price_cny: e.target.value }))} inputMode="decimal" placeholder="¥" className="h-10 w-full rounded-xl border border-neutral-200 px-2.5 text-sm" />
-                      <input value={draft.work_price_somoni} onChange={(e) => setDraft((d) => ({ ...d, work_price_somoni: e.target.value }))} inputMode="decimal" placeholder="Работа, смн" className="h-10 w-full rounded-xl border border-neutral-200 px-2.5 text-sm" />
-                      <input value={draft.weight_grams} onChange={(e) => setDraft((d) => ({ ...d, weight_grams: e.target.value }))} inputMode="numeric" placeholder="Вес, г" className="h-10 w-full rounded-xl border border-neutral-200 px-2.5 text-sm" />
+                      <input aria-label="Название товара" maxLength={200} value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} className="h-10 w-full rounded-xl border border-neutral-200 px-2.5 text-sm" />
+                      <input value={draft.price_cny} onChange={(e) => setDraft((d) => ({ ...d, price_cny: e.target.value }))} inputMode="decimal" aria-label="Цена в юанях" placeholder="¥" className="h-10 w-full rounded-xl border border-neutral-200 px-2.5 text-sm" />
+                      <input value={draft.work_price_somoni} onChange={(e) => setDraft((d) => ({ ...d, work_price_somoni: e.target.value }))} inputMode="decimal" aria-label="Работа, смн" placeholder="Работа, смн" className="h-10 w-full rounded-xl border border-neutral-200 px-2.5 text-sm" />
+                      <input value={draft.weight_grams} onChange={(e) => setDraft((d) => ({ ...d, weight_grams: e.target.value }))} inputMode="numeric" aria-label="Вес, г" placeholder="Вес, г" className="h-10 w-full rounded-xl border border-neutral-200 px-2.5 text-sm" />
+                      <input aria-label="Ссылка поставщика" value={draft.supplier_url} onChange={e => setDraft(d => ({ ...d, supplier_url: e.target.value }))} type="url" placeholder="Ссылка поставщика" className="h-10 w-full rounded-xl border border-neutral-200 px-2.5 text-sm" />
                       <div className="flex gap-2">
                         <button disabled={saving} onClick={() => saveEdit(item)} className="flex-1 rounded-xl bg-black px-2 py-2 text-xs font-medium text-white">Сохранить</button>
                         <button disabled={saving} onClick={() => setEditing(null)} className="rounded-xl bg-neutral-100 px-3 py-2 text-xs font-medium">Отмена</button>
