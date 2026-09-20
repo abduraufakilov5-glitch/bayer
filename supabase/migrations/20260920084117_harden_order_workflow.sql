@@ -1,19 +1,19 @@
 -- Repair policies for installations created from the original MVP migration.
-drop policy if exists products_select_own on public.buyer_products;
-create policy products_select_own on public.buyer_products for select to authenticated using (exists (select 1 from public.buyer_orders o where o.id = buyer_products.order_id and o.owner_id = (select auth.uid())));
-drop policy if exists products_insert_own on public.buyer_products;
-create policy products_insert_own on public.buyer_products for insert to authenticated with check (exists (select 1 from public.buyer_orders o where o.id = buyer_products.order_id and o.owner_id = (select auth.uid())));
-drop policy if exists products_update_own on public.buyer_products;
-create policy products_update_own on public.buyer_products for update to authenticated using (exists (select 1 from public.buyer_orders o where o.id = buyer_products.order_id and o.owner_id = (select auth.uid()))) with check (exists (select 1 from public.buyer_orders o where o.id = buyer_products.order_id and o.owner_id = (select auth.uid())));
-drop policy if exists products_delete_own on public.buyer_products;
-create policy products_delete_own on public.buyer_products for delete to authenticated using (exists (select 1 from public.buyer_orders o where o.id = buyer_products.order_id and o.owner_id = (select auth.uid())));
-drop policy if exists submissions_select_own on public.buyer_submissions;
-create policy submissions_select_own on public.buyer_submissions for select to authenticated using (exists (select 1 from public.buyer_orders o where o.id = buyer_submissions.order_id and o.owner_id = (select auth.uid())));
-drop policy if exists submission_items_select_own on public.buyer_submission_items;
-create policy submission_items_select_own on public.buyer_submission_items for select to authenticated using (exists (select 1 from public.buyer_submissions s join public.buyer_orders o on o.id = s.order_id where s.id = buyer_submission_items.submission_id and o.owner_id = (select auth.uid())));
+drop policy if exists buyer_products_select_own on public.buyer_products;
+create policy buyer_products_select_own on public.buyer_products for select to authenticated using (exists (select 1 from public.buyer_orders o where o.id = buyer_products.order_id and o.owner_id = (select auth.uid())));
+drop policy if exists buyer_products_insert_own on public.buyer_products;
+create policy buyer_products_insert_own on public.buyer_products for insert to authenticated with check (exists (select 1 from public.buyer_orders o where o.id = buyer_products.order_id and o.owner_id = (select auth.uid())));
+drop policy if exists buyer_products_update_own on public.buyer_products;
+create policy buyer_products_update_own on public.buyer_products for update to authenticated using (exists (select 1 from public.buyer_orders o where o.id = buyer_products.order_id and o.owner_id = (select auth.uid()))) with check (exists (select 1 from public.buyer_orders o where o.id = buyer_products.order_id and o.owner_id = (select auth.uid())));
+drop policy if exists buyer_products_delete_own on public.buyer_products;
+create policy buyer_products_delete_own on public.buyer_products for delete to authenticated using (exists (select 1 from public.buyer_orders o where o.id = buyer_products.order_id and o.owner_id = (select auth.uid())));
+drop policy if exists buyer_submissions_select_own on public.buyer_submissions;
+create policy buyer_submissions_select_own on public.buyer_submissions for select to authenticated using (exists (select 1 from public.buyer_orders o where o.id = buyer_submissions.order_id and o.owner_id = (select auth.uid())));
+drop policy if exists buyer_submission_items_select_own on public.buyer_submission_items;
+create policy buyer_submission_items_select_own on public.buyer_submission_items for select to authenticated using (exists (select 1 from public.buyer_submissions s join public.buyer_orders o on o.id = s.order_id where s.id = buyer_submission_items.submission_id and o.owner_id = (select auth.uid())));
 
-create index if not exists buyer_submission_items_submission_idx on public.buyer_submission_items(submission_id);
-create index if not exists buyer_submission_items_product_idx on public.buyer_submission_items(product_id);
+create index if not exists buyer_submission_items_submission_id_idx on public.buyer_submission_items(submission_id);
+create index if not exists buyer_submission_items_product_id_idx on public.buyer_submission_items(product_id);
 create index if not exists buyer_orders_owner_created_idx on public.buyer_orders(owner_id, created_at desc);
 
 -- Trigger functions use caller privileges. Only the submission RPC below needs

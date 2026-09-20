@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { MAX_ORDER_PRODUCTS, MAX_QUANTITY, UUID_PATTERN } from '../../../lib/validation.ts'
+import { MAX_ORDER_PRODUCTS, MAX_QUANTITY, UUID_PATTERN } from './validation.ts'
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
