@@ -53,41 +53,51 @@ export default function DashboardPage() {
 
   const received = useMemo(() => orders.filter((o) => o.status === 'received').length, [orders])
   const active = useMemo(() => orders.filter((o) => o.status !== 'completed').length, [orders])
+  const completed = useMemo(() => orders.filter((o) => o.status === 'completed').length, [orders])
 
   return (
-    <div className="space-y-5 pb-20 sm:pb-0">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-sm font-medium text-neutral-500">Добро пожаловать</p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight">Заказы</h1>
+    <div className="space-y-6 pb-20 sm:pb-0">
+      <section className="dashboard-hero relative overflow-hidden rounded-[32px] p-6 text-white shadow-[0_24px_60px_rgba(23,60,48,.18)] sm:p-8">
+        <div className="noise-overlay pointer-events-none absolute inset-0 opacity-25" />
+        <div className="relative flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-medium text-white/70 backdrop-blur"><span className="h-2 w-2 rounded-full bg-[#ff8561]" /> Рабочая панель</div>
+            <h1 className="mt-5 text-3xl font-semibold tracking-[-.04em] sm:text-4xl">Заказы под контролем</h1>
+            <p className="mt-3 max-w-lg text-sm leading-6 text-white/60">Создавайте подборки, отправляйте клиентам и отслеживайте подтверждения в одном месте.</p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link href="/orders/new" className="rounded-2xl bg-[#ed5b32] px-5 py-3 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(0,0,0,.16)] transition hover:bg-[#ff6b43]">＋ Создать заказ</Link>
+              <Link href="/catalog" className="rounded-2xl border border-white/15 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/15">Открыть каталог</Link>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            {[['Активные', active], ['К закупке', received], ['Завершены', completed]].map(([label, value]) => (
+              <div key={label} className="min-w-0 rounded-2xl border border-white/10 bg-white/[.08] px-3 py-4 backdrop-blur-sm sm:min-w-28 sm:px-4"><div className="text-[10px] uppercase tracking-wider text-white/45">{label}</div><div className="mt-2 text-2xl font-semibold">{value}</div></div>
+            ))}
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:flex">
-          <div className="rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-black/5"><div className="text-[11px] text-neutral-500">Активных</div><div className="mt-1 text-xl font-semibold">{active}</div></div>
-          <div className="rounded-2xl bg-black px-4 py-3 text-white shadow-lg shadow-black/10"><div className="text-[11px] text-white/55">К закупке</div><div className="mt-1 text-xl font-semibold">{received}</div></div>
-        </div>
-      </div>
+      </section>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <Link href="/orders/new" className="group rounded-[28px] bg-black p-5 text-white shadow-xl shadow-black/10 transition active:scale-[0.99]">
-          <div className="flex items-center justify-between"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 text-xl">＋</div><span className="text-2xl text-white/40 transition group-hover:text-white">→</span></div>
-          <div className="mt-8 text-lg font-semibold">Новый заказ</div>
-          <div className="mt-1 text-sm text-white/55">Добавьте платки из каталога или новые фото.</div>
+        <Link href="/orders/new" className="soft-card group rounded-[26px] bg-[#ed5b32] p-5 text-white transition hover:-translate-y-0.5 active:scale-[0.99]">
+          <div className="flex items-center justify-between"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/15 text-xl">＋</div><span className="text-2xl text-white/60 transition group-hover:translate-x-1 group-hover:text-white">→</span></div>
+          <div className="mt-7 text-lg font-semibold">Новый заказ</div>
+          <div className="mt-1 text-sm text-white/70">Фото, цены и ссылка для клиента.</div>
         </Link>
-        <Link href="/catalog" className="rounded-[28px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.05)] ring-1 ring-black/5 transition active:scale-[0.99]">
-          <div className="flex items-center justify-between"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-neutral-100 text-xl">▱</div><span className="text-2xl text-neutral-300">→</span></div>
-          <div className="mt-8 text-lg font-semibold">Каталог платков</div>
-          <div className="mt-1 text-sm text-neutral-500">Сохранённые товары и их цены для клиента.</div>
+        <Link href="/catalog" className="soft-card group rounded-[26px] bg-white p-5 ring-1 ring-black/5 transition hover:-translate-y-0.5 active:scale-[0.99]">
+          <div className="flex items-center justify-between"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#dff0e6] text-xl text-[#173c30]">▱</div><span className="text-2xl text-neutral-300 transition group-hover:translate-x-1 group-hover:text-[#ed5b32]">→</span></div>
+          <div className="mt-7 text-lg font-semibold text-[#173c30]">Каталог платков</div>
+          <div className="mt-1 text-sm text-neutral-500">Готовые позиции для быстрых заказов.</div>
         </Link>
       </div>
 
-      <section className="space-y-3 rounded-[24px] bg-white p-4 ring-1 ring-black/5">
+      <section className="soft-card space-y-3 rounded-[26px] bg-white p-4 ring-1 ring-black/5 sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row">
           <input aria-label="Поиск заказов" value={query} onChange={e => { setQuery(e.target.value); setPage(1) }} placeholder="Найти по названию или номеру…" className="h-12 min-w-0 flex-1 rounded-xl border border-neutral-200 px-4" />
           <select aria-label="Сортировка заказов" value={sort} onChange={e => { setSort(e.target.value as typeof sort); setPage(1) }} className="rounded-xl border border-neutral-200 p-3 text-sm"><option value="newest">Сначала новые</option><option value="oldest">Сначала старые</option></select>
-          <button disabled={loading || !visible.length || !!error} onClick={() => downloadCsv('bayer-orders.csv', [['Номер', 'Название', 'Статус', 'Создан', 'Подтверждён'], ...visible.map(o => [o.order_number, o.title, statusLabel[o.status], o.created_at, o.confirmed_at])])} className="rounded-xl border border-neutral-200 px-4 py-3 text-sm font-medium disabled:opacity-40">Скачать CSV</button>
+          <button disabled={loading || !visible.length || !!error} onClick={() => downloadCsv('bayer-orders.csv', [['Номер', 'Название', 'Статус', 'Создан', 'Подтверждён'], ...visible.map(o => [o.order_number, o.title, statusLabel[o.status], o.created_at, o.confirmed_at])])} className="rounded-xl border border-neutral-200 px-4 py-3 text-sm font-medium text-[#173c30] transition hover:bg-[#f4f1eb] disabled:opacity-40">Скачать CSV</button>
         </div>
         <div className="flex flex-wrap gap-2" aria-label="Фильтр по статусу">
-          {(['all', ...Object.keys(statusLabel)] as (OrderStatus | 'all')[]).map(value => <button key={value} aria-pressed={status === value} onClick={() => { setStatus(value); setPage(1) }} className={'rounded-full px-3 py-2 text-xs font-medium ' + (status === value ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-600')}>{value === 'all' ? 'Все' : statusLabel[value]} · {value === 'all' ? orders.length : orders.filter(o => o.status === value).length}</button>)}
+          {(['all', ...Object.keys(statusLabel)] as (OrderStatus | 'all')[]).map(value => <button key={value} aria-pressed={status === value} onClick={() => { setStatus(value); setPage(1) }} className={'rounded-full px-3 py-2 text-xs font-medium transition ' + (status === value ? 'bg-[#173c30] text-white shadow-sm' : 'bg-[#f4f1eb] text-neutral-600 hover:bg-[#ebe6de]')}>{value === 'all' ? 'Все' : statusLabel[value]} · {value === 'all' ? orders.length : orders.filter(o => o.status === value).length}</button>)}
         </div>
       </section>
       {error && <div role="alert" className="rounded-2xl bg-red-50 p-4 text-sm text-red-700">{error} <button onClick={() => { setError(''); setLoading(true); void loadOrders() }} className="ml-2 underline">Повторить</button></div>}
@@ -102,11 +112,11 @@ export default function DashboardPage() {
         </div>
       ) : (
         <section>
-          <div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-semibold">Список заказов</h2><span className="text-sm text-neutral-500">{visible.length}</span></div>
+          <div className="mb-3 flex items-center justify-between"><div><p className="text-xs font-semibold uppercase tracking-[.15em] text-[#ed5b32]">Обзор</p><h2 className="mt-1 text-xl font-semibold text-[#173c30]">Список заказов</h2></div><span className="rounded-full bg-white px-3 py-1.5 text-sm text-neutral-500 shadow-sm ring-1 ring-black/5">{visible.length}</span></div>
           {visible.length === 0 && <div className="rounded-2xl bg-white p-8 text-center text-neutral-500">Ничего не найдено. Измените поиск или статус.</div>}
           <div className="grid gap-3">
             {visible.slice((page - 1) * pageSize, page * pageSize).map((order) => (
-              <Link key={order.id} href={`/orders/${order.id}`} className="rounded-[24px] bg-white p-4 shadow-[0_8px_30px_rgba(0,0,0,0.04)] ring-1 ring-black/5 transition hover:ring-black/10 active:scale-[0.998]">
+              <Link key={order.id} href={`/orders/${order.id}`} className="soft-card rounded-[24px] bg-white p-4 ring-1 ring-black/5 transition hover:-translate-y-0.5 hover:ring-[#173c30]/15 active:scale-[0.998]">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold">#{String(order.order_number).padStart(5, '0')}</span><span className={"rounded-full px-2.5 py-1 text-[11px] font-medium " + statusClass(order.status)}>{statusLabel[order.status]}</span></div>
