@@ -48,7 +48,7 @@ export default function ClientOrder({ endpoint, token, title, orderNumber, produ
         <div className="w-full max-w-sm text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-3xl text-emerald-600">✓</div>
           <h1 className="mt-6 text-2xl font-semibold tracking-tight">Заказ отправлен</h1>
-          <p className="mt-2 text-sm text-neutral-500">Байер получил ваш выбор.</p>
+          
         </div>
       </main>
     )
