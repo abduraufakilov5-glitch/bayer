@@ -41,3 +41,12 @@ test('CSV quotes delimiters/newlines and neutralizes spreadsheet formulas', () =
   assert.ok(csv.includes('"\'  +cmd"'))
   assert.ok(csv.includes('"a;b\nc";"5";""'))
 })
+
+test('optional price preserves absent and zero values and rejects invalid inputs', async () => {
+  const {parseOptionalPrice} = await import('../lib/validation')
+  assert.equal(parseOptionalPrice(''), null)
+  assert.equal(parseOptionalPrice('  '), null)
+  assert.equal(parseOptionalPrice('0'), 0)
+  assert.equal(parseOptionalPrice('12,50'), 12.5)
+  for (const value of ['-1', 'Infinity', '1.001', '1000001']) assert.ok(Number.isNaN(parseOptionalPrice(value)))
+})

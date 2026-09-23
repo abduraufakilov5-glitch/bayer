@@ -1,3 +1,4 @@
+import type { Receipt } from './telegram.ts'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { MAX_ORDER_PRODUCTS, MAX_QUANTITY, UUID_PATTERN } from './validation.ts'
 
@@ -10,7 +11,7 @@ const headers = {
 }
 function json(body: unknown, status = 200) { return Response.json(body, { status, headers }) }
 
-export function createHandler(supabase: SupabaseClient) {
+export function createHandler(supabase: SupabaseClient, notify?: (receipt: Receipt) => Promise<void>) {
   return async (request: Request): Promise<Response> => {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers })
     if (!['GET', 'POST'].includes(request.method)) return json({ error: 'Method not allowed' }, 405)
@@ -47,12 +48,15 @@ export function createHandler(supabase: SupabaseClient) {
         }
         const receipt = data?.[0]
         if (!receipt) return json({ error: 'Could not submit order' }, 503)
+        if (notify) {
+          try { await notify(receipt) } catch { console.warn('Notification unavailable; order is saved') }
+        }
         return json({ order_number: receipt.order_number, total_quantity: receipt.total_quantity, confirmed_at: receipt.confirmed_at })
       }
 
       const token = new URL(request.url).searchParams.get('token') ?? ''
       if (!UUID_PATTERN.test(token)) return json({ error: 'Not found' }, 404)
-      const { data: order, error } = await supabase.from('buyer_orders').select('id, owner_id, title, order_number, status').eq('public_token', token).neq('status', 'draft').maybeSingle()
+      const { data: order, error } = await supabase.from('buyer_orders').select('id, owner_id, title, order_number, status').eq('public_token', token).is('deleted_at', null).neq('status', 'draft').maybeSingle()
       if (error) return json({ error: 'Service unavailable' }, 503)
       if (!order) return json({ error: 'Not found' }, 404)
       const publicOrder = { title: order.title, order_number: order.order_number, status: order.status }

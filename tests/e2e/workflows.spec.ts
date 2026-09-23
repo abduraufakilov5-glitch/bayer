@@ -1,24 +1,21 @@
 import { expect, test } from '@playwright/test'
 const token = '11111111-1111-4111-8111-111111111111'
 
-test('customer selection survives reload, filters, reviews, retries and confirms', async ({ page }) => {
+test('customer selection survives reload, reviews, retries and confirms', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   await page.goto('/o/'+token)
   await page.getByRole('button', { name: 'Увеличить: Шёлковый платок' }).click()
   await page.getByRole('button', { name: 'Увеличить: Шёлковый платок' }).click()
-  await expect(page.getByRole('button', { name: /Проверить заказ/ })).toContainText('112,8')
+  await expect(page.getByRole('button', { name: /Готово/ })).toContainText('112,8')
   await page.reload()
   await expect(page.getByText('Ваш предыдущий выбор восстановлен.', {exact:true})).toBeVisible()
   await expect(page.getByLabel('Количество: Шёлковый платок')).toHaveText('2')
-  await page.getByLabel('Поиск товаров').fill('нет такого')
-  await expect(page.getByText('Товары не найдены.')).toBeVisible()
-  await page.getByLabel('Поиск товаров').fill('')
-  await page.getByRole('button', { name: /Проверить заказ/ }).click()
+  await page.getByRole('button', { name: /Готово/ }).click()
   await expect(page.getByRole('dialog')).toContainText('Шёлковый платок × 2')
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).not.toBeVisible()
-  await page.getByRole('button', { name: /Проверить заказ/ }).click()
+  await page.getByRole('button', { name: /Готово/ }).click()
   let attempts = 0
   await page.route('**/functions/v1/buyer-public-order', async route => {
     expect(route.request().postDataJSON()).toEqual({ token, items: [{ product_id: '22222222-2222-4222-8222-222222222222', quantity: 2 }] })
@@ -33,25 +30,51 @@ test('customer selection survives reload, filters, reviews, retries and confirms
   expect(errors).toEqual([])
 })
 
-test('buyer signs in, searches, filters, exports CSV, opens immutable order and signs out', async ({ page }) => {
+test('buyer signs in, filters, opens immutable order and signs out', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('Email', { exact:true }).fill('buyer@example.test')
   await page.getByLabel('Пароль', { exact:true }).fill('fixture-password')
   await page.getByRole('button', {name:'Войти',exact:true}).click()
   await expect(page).toHaveURL(/dashboard/)
   await expect(page.getByRole('heading', {name:'Осенняя закупка'})).toBeVisible()
+  await expect(page.getByText('451,2 смн', {exact:true})).toBeVisible()
+  const typography = await page.locator('body').evaluate(element => {
+    const style = getComputedStyle(element)
+    return {family:style.fontFamily,spacing:style.letterSpacing}
+  })
+  expect(typography.family).not.toContain('SF Pro Display')
+  expect(typography.spacing).toBe('normal')
   await page.getByLabel('Поиск заказов').fill('#00013')
   await expect(page.getByRole('heading', {name:'Зимняя коллекция'})).toBeVisible()
   await expect(page.getByRole('heading', {name:'Осенняя закупка'})).not.toBeVisible()
-  const download = page.waitForEvent('download')
-  await page.getByRole('button', {name:'Скачать CSV',exact:true}).click()
-  expect((await download).suggestedFilename()).toBe('bayer-orders.csv')
-  await page.getByLabel('Поиск заказов').fill('')
-  await page.getByRole('button', {name:'Ждём клиента · 1',exact:true}).click()
+  await page.getByRole('button', {name:'Очистить поиск'}).click()
+  await expect(page.getByRole('heading', {name:'Осенняя закупка'})).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.getByRole('button', {name:'Ждём клиента',exact:true}).click()
   await expect(page.getByRole('heading', {name:'Зимняя коллекция'})).not.toBeVisible()
   await page.getByRole('heading', {name:'Осенняя закупка'}).click()
   await expect(page.getByText('Заказ опубликован: состав и цены зафиксированы.')).toBeVisible()
   await expect(page.getByRole('button', {name:'Изменить',exact:true})).toHaveCount(0)
+  await page.getByRole('button', {name:'Название',exact:true}).click()
+  await page.getByLabel('Название заказа', {exact:true}).fill('Осенняя закупка — VIP')
+  await page.getByRole('button', {name:'Сохранить',exact:true}).click()
+  await expect(page.getByRole('heading', {name:'Осенняя закупка — VIP'})).toBeVisible()
+  await page.evaluate(() => Object.defineProperty(navigator, 'share', {configurable:true,value:undefined}))
+  await page.context().grantPermissions(['clipboard-read','clipboard-write'])
+  await page.getByRole('button', {name:'Поделиться',exact:true}).click()
+  await expect(page.getByRole('button', {name:'Скопировано ✓',exact:true})).toBeVisible()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('/o/'+token)
+  await page.getByRole('button', {name:'Переключить тему'}).click()
+  await expect(page.locator('html')).toHaveAttribute('data-theme','dark')
+  await page.reload()
+  await expect(page.locator('html')).toHaveAttribute('data-theme','dark')
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('button', {name:'Удалить',exact:true}).click()
+  await expect(page).toHaveURL(/dashboard/)
+  await page.getByRole('button', {name:'Корзина',exact:true}).click()
+  await expect(page.getByRole('heading', {name:'Осенняя закупка — VIP'})).toBeVisible()
+  await page.getByRole('button', {name:'Восстановить',exact:true}).click()
+  await expect(page.getByRole('heading', {name:'Осенняя закупка — VIP'})).not.toBeVisible()
   await page.getByRole('button', {name:'Выйти',exact:true}).click()
   await expect(page).toHaveURL(/login/)
 })
@@ -64,7 +87,7 @@ test('invalid token shows friendly 404 and private pages redirect to login', asy
   await expect(page).toHaveURL(/login/)
 })
 
-test('catalog product creates no empty placeholder; failed saves roll back and can be retried', async ({page}) => {
+test('photo order preserves original price formula, rolls back failed save and retries', async ({page}) => {
   await page.goto('/login')
   await page.getByLabel('Email', {exact:true}).fill('buyer@example.test')
   await page.getByLabel('Пароль', {exact:true}).fill('fixture-password')
@@ -72,12 +95,19 @@ test('catalog product creates no empty placeholder; failed saves roll back and c
   await expect(page).toHaveURL(/dashboard/)
   await page.goto('/orders/new')
   await page.getByLabel('Название заказа', {exact:true}).fill('Новый тестовый заказ')
-  await page.getByRole('button', {name:/Шёлковый платок/}).click()
+  await page.getByLabel('Фото товаров').setInputFiles({name: 'Товар.png', mimeType:'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64')})
   await expect(page.getByLabel('Название товара', {exact:true})).toHaveCount(1)
-  await page.getByPlaceholder('35', {exact:true}).fill('')
-  await page.getByRole('button', {name:'Создать заказ',exact:true}).click()
-  await expect(page.getByRole('alert').filter({hasText:'Проверьте цену'})).toBeVisible()
-  await page.getByPlaceholder('35', {exact:true}).fill('35,50')
+  await page.getByLabel('Цена в юанях', {exact:true}).fill('35,50')
+  await page.getByText('Общие параметры товаров', {exact:true}).click()
+  await page.getByLabel('Общая работа, смн', {exact:true}).fill('5')
+  await page.getByLabel('Общий вес, г', {exact:true}).fill('100')
+  await page.getByRole('button', {name:'Применить ко всем',exact:true}).click()
+  await expect(page.getByLabel('Вес, г',{exact:true})).toHaveValue('100')
+  await page.getByRole('button', {name:'Отменить',exact:true}).click()
+  await expect(page.getByLabel('Вес, г',{exact:true})).toHaveValue('80')
+  await page.getByLabel('Общий вес, г', {exact:true}).fill('80')
+  await page.getByRole('button', {name:'Применить ко всем',exact:true}).click()
+  await expect(page.getByText('57,1 смн', {exact:true})).toBeVisible()
   let rolledBack = false
   let fail = true
   await page.route('**/rest/v1/buyer_orders*', async route => {
@@ -85,9 +115,14 @@ test('catalog product creates no empty placeholder; failed saves roll back and c
     else if (route.request().method() === 'DELETE') { rolledBack = true; await route.fulfill({status:204}) }
     else await route.continue()
   })
+  await page.route('**/storage/v1/object/**', route => route.fulfill({status:200,json:{Key:'fixture'}}))
   await page.route('**/rest/v1/buyer_products*', async route => {
     if (route.request().method() !== 'POST') { await route.continue(); return }
     expect(route.request().postDataJSON().price).toBe(57.1)
+    expect(route.request().postDataJSON().price_cny).toBe(35.5)
+    expect(route.request().postDataJSON().work_price_somoni).toBe(5)
+    expect(route.request().postDataJSON().weight_grams).toBe(80)
+    expect(route.request().postDataJSON().name).toBe('Товар')
     await route.fulfill({status: fail ? 500 : 201, json:fail ? {message:'fixture failure'} : {}})
   })
   await page.getByRole('button', {name:'Создать заказ',exact:true}).click()
@@ -96,4 +131,63 @@ test('catalog product creates no empty placeholder; failed saves roll back and c
   fail = false
   await page.getByRole('button', {name:'Создать заказ',exact:true}).click()
   await expect(page).toHaveURL('/orders/'+token)
+})
+
+test('unpriced product is selectable and no misleading zero total is shown', async ({page}) => {
+  await page.goto('/o/'+token)
+  await page.getByRole('button', {name:'Увеличить: Сумка без цены'}).click()
+  await page.reload()
+  await expect(page.getByLabel('Количество: Сумка без цены')).toHaveText('1')
+  const done = page.getByRole('button', {name:/Готово/})
+  await expect(done).toContainText('1 шт.')
+  await expect(done).not.toContainText('смн')
+  await done.click()
+  await expect(page.getByRole('dialog')).toContainText('Сумка без цены × 1')
+  await page.getByRole('button', {name:'Подтвердить заказ',exact:true}).click()
+  await expect(page.getByRole('heading', {name:'Заказ отправлен',exact:true})).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
+test('buyer edits calculated price and layout fits phone and desktop', async ({page}, testInfo) => {
+  await page.goto('/login')
+  await page.getByLabel('Email',{exact:true}).fill('buyer@example.test')
+  await page.getByLabel('Пароль',{exact:true}).fill('fixture-password')
+  await page.getByRole('button',{name:'Войти',exact:true}).click()
+  await expect(page).toHaveURL(/dashboard/)
+  await expect(page.getByRole('heading',{name:'Осенняя закупка'})).toBeVisible()
+  if (testInfo.project.name === 'mobile') {
+    const bounds = await page.locator('.nav-mobile').boundingBox()
+    expect(bounds!.y).toBeGreaterThan(page.viewportSize()!.height / 2)
+  }
+  await page.screenshot({path:`/tmp/bayer-${testInfo.project.name}-dashboard.png`,fullPage:true})
+  await page.route('**/rest/v1/buyer_orders*', async route => {
+    const response = await route.fetch()
+    const row = await response.json()
+    await route.fulfill({response,json:Array.isArray(row) ? row : {...row,status:'draft'}})
+  })
+  await page.getByRole('heading',{name:'Осенняя закупка'}).click()
+  await page.getByRole('button',{name:'Изменить',exact:true}).click()
+  await expect(page.getByLabel('Цена в юанях',{exact:true})).toHaveValue('35')
+  await page.getByLabel('Цена в юанях',{exact:true}).fill('50')
+  await page.getByLabel('Вес, г',{exact:true}).fill('100')
+  await page.getByLabel('Работа, смн',{exact:true}).fill('7')
+  await expect(page.getByText('80 смн',{exact:true})).toBeVisible()
+  let saved = false
+  await page.route('**/rest/v1/buyer_products*',async route => {
+    if (route.request().method() !== 'PATCH') {await route.continue();return}
+    const body = route.request().postDataJSON()
+    expect(body.price).toBe(80)
+    expect(body.price_cny).toBe(50)
+    expect(body.cargo_cost).toBe(3)
+    expect(body.work_price_somoni).toBe(7)
+    saved = true
+    await route.fulfill({status:204})
+  })
+  await expect.poll(() => page.getByRole('img',{name:'Шёлковый платок',exact:true}).evaluate((img:HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0)
+  await page.evaluate(() => scrollTo(0,0))
+  await page.screenshot({path:`/tmp/bayer-${testInfo.project.name}-editor.png`,fullPage:true})
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.getByRole('button',{name:'Сохранить',exact:true}).click()
+  await expect(page.getByRole('button',{name:'Изменить',exact:true})).toBeVisible()
+  expect(saved).toBe(true)
 })

@@ -9,6 +9,7 @@ export type Order = {
   confirmed_at: string | null
   created_at: string
   updated_at: string
+  deleted_at: string | null
 }
 
 export type CatalogProduct = {
@@ -47,6 +48,18 @@ export type SubmissionItem = {
   product_name: string
   price: number | null
   quantity: number
+  cost_price: number | null
+  buyer_earnings: number | null
+}
+
+export type FinanceSummary = {
+  revenue: number
+  spent: number
+  earned: number
+  month_revenue: number
+  month_spent: number
+  month_earned: number
+  confirmed_orders: number
 }
 
 export type Submission = {

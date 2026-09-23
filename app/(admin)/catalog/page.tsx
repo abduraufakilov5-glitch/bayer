@@ -1,9 +1,10 @@
 'use client'
 
+import { signProductImages, type ImageCache } from '@/lib/product-images'
 import Link from 'next/link'
 import Image from 'next/image'
 import { parseDecimal, validPricing, safeSupplierUrl } from '@/lib/validation'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { CatalogProduct } from '@/lib/types'
 import { calculateCargo, calculateClientPrice, DEFAULT_WEIGHT_GRAMS, formatSomoni } from '@/lib/pricing'
@@ -11,6 +12,7 @@ import { calculateCargo, calculateClientPrice, DEFAULT_WEIGHT_GRAMS, formatSomon
 type Draft = { name: string; price_cny: string; work_price_somoni: string; weight_grams: string; supplier_url: string }
 
 export default function CatalogPage() {
+  const imageCache = useRef<ImageCache>(new Map())
   const [items, setItems] = useState<CatalogProduct[]>([])
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [search, setSearch] = useState('')
@@ -27,12 +29,8 @@ export default function CatalogPage() {
     if (loadError) { setError(loadError.message); setLoading(false); return }
     const rows = (data ?? []) as CatalogProduct[]
     setItems(rows)
-    const signed: Record<string, string> = {}
-    await Promise.all(rows.map(async (item) => {
-      const { data: file } = await supabase.storage.from('buyer-product-images').createSignedUrl(item.image_path, 3600)
-      if (file?.signedUrl) signed[item.id] = file.signedUrl
-    }))
-    setUrls(signed)
+    try {setUrls(await signProductImages(supabase,rows,imageCache.current))}
+    catch {setError('Не удалось загрузить фотографии. Обновите страницу.')}
     setLoading(false)
   }
 

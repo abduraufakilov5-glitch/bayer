@@ -32,3 +32,10 @@ export function restoreCart(raw: string | null, productIds: string[]): Record<st
     }))
   } catch { return {} }
 }
+
+// null means no price; NaN signals invalid user input. Zero remains a valid price.
+export function parseOptionalPrice(value: string): number | null {
+  if (!value.trim()) return null
+  const price = parseDecimal(value)
+  return Number.isFinite(price) && price >= 0 && price <= 1_000_000 ? price : NaN
+}

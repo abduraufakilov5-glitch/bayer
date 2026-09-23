@@ -1,136 +1,93 @@
 'use client'
-
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { Order, OrderStatus } from '@/lib/types'
-
-import { downloadCsv, filterOrders, statusLabels as statusLabel } from '@/lib/orders'
-
-function statusClass(status: OrderStatus) {
-  if (status === 'received') return 'bg-amber-100 text-amber-800'
-  if (status === 'ordered') return 'bg-blue-100 text-blue-800'
-  if (status === 'completed') return 'bg-emerald-100 text-emerald-800'
-  if (status === 'waiting') return 'bg-neutral-100 text-neutral-800'
-  return 'bg-neutral-100 text-neutral-500'
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
-}
-
+import type { FinanceSummary, Order, OrderStatus } from '@/lib/types'
+import { statusLabels } from '@/lib/orders'
+import { Icon } from '@/app/components/icons'
+import { formatSomoni } from '@/lib/pricing'
+const pageSize = 24
+const steps: OrderStatus[] = ['draft','waiting','received','ordered','completed']
+const dateFormatter = new Intl.DateTimeFormat('ru', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})
 export default function DashboardPage() {
   const [orders, setOrders] = useState<Order[]>([])
+  const [status, setStatus] = useState<OrderStatus | 'all' | 'deleted'>('all')
+  const [query, setQuery] = useState('')
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(0)
+  const [total, setTotal] = useState(0)
+  const [stats, setStats] = useState({active:0, received:0, completed:0})
+  const [finance, setFinance] = useState<FinanceSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [query, setQuery] = useState('')
-  const [status, setStatus] = useState<OrderStatus | 'all'>('all')
-  const [sort, setSort] = useState<'newest' | 'oldest'>('newest')
-  const [page, setPage] = useState(1)
-  const visible = useMemo(() => filterOrders(orders, query, status, sort), [orders, query, status, sort])
-  const pageSize = 20
-
-
-  const loadOrders = useCallback(async () => {
-    try {
-      const supabase = createClient()
-      const all: Order[] = []
-      // Fetch every page; Supabase caps a single response at 1,000 rows by default.
-      for (let from = 0; ; from += 500) {
-        const { data, error } = await supabase.from('buyer_orders').select('*').order('created_at', { ascending: false }).order('id').range(from, from + 499)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const version = useRef(0)
+  useEffect(() => { const timer = setTimeout(() => {setSearch(query.trim()); setPage(0)}, 250); return () => clearTimeout(timer) }, [query])
+  useEffect(() => {
+    const current = ++version.current
+    const controller = new AbortController()
+    let inFlight = false
+    async function load(background = false) {
+      if (inFlight) return
+      inFlight = true
+      if (!background) setLoading(true)
+      try {
+        const supabase = createClient()
+        let request = supabase.from('buyer_orders').select('id,title,order_number,status,created_at,confirmed_at,deleted_at', {count:'exact'}).order('created_at', {ascending:false}).order('id').range(page * pageSize, (page + 1) * pageSize - 1)
+        request = status === 'deleted' ? request.not('deleted_at', 'is', null) : request.is('deleted_at', null)
+        if (status !== 'all' && status !== 'deleted') request = request.eq('status', status)
+        if (search) {
+          if (/^#?\d+$/.test(search)) request = request.eq('order_number', Number(search.replace('#','')))
+          else request = request.ilike('title', '%' + search.replace(/[\\%_]/g, '\\$&') + '%')
+        }
+        const {data, count, error} = await request.abortSignal(controller.signal)
+        if (current !== version.current || controller.signal.aborted) return
         if (error) throw error
-        all.push(...(data ?? []) as Order[])
-        if (!data || data.length < 500) break
-      }
-      setOrders(all)
-    } catch { setError('Не удалось загрузить заказы. Проверьте подключение и повторите попытку.') }
-    finally { setLoading(false) }
-  }, [])
-
-  // Fetch external data on mount; state is populated from the asynchronous response.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void loadOrders() }, [loadOrders])
-
-  const received = useMemo(() => orders.filter((o) => o.status === 'received').length, [orders])
-  const active = useMemo(() => orders.filter((o) => o.status !== 'completed').length, [orders])
-  const completed = useMemo(() => orders.filter((o) => o.status === 'completed').length, [orders])
-
-  return (
-    <div className="space-y-6 pb-20 sm:pb-0">
-      <section className="dashboard-hero relative overflow-hidden rounded-[32px] p-6 text-white shadow-[0_24px_60px_rgba(23,60,48,.18)] sm:p-8">
-        <div className="noise-overlay pointer-events-none absolute inset-0 opacity-25" />
-        <div className="relative flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-medium text-white/70 backdrop-blur"><span className="h-2 w-2 rounded-full bg-[#ff8561]" /> Рабочая панель</div>
-            <h1 className="mt-5 text-3xl font-semibold tracking-[-.04em] sm:text-4xl">Заказы под контролем</h1>
-            <p className="mt-3 max-w-lg text-sm leading-6 text-white/60">Создавайте подборки, отправляйте клиентам и отслеживайте подтверждения в одном месте.</p>
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Link href="/orders/new" className="rounded-2xl bg-[#ed5b32] px-5 py-3 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(0,0,0,.16)] transition hover:bg-[#ff6b43]">＋ Создать заказ</Link>
-              <Link href="/catalog" className="rounded-2xl border border-white/15 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/15">Открыть каталог</Link>
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-2 sm:gap-3">
-            {[['Активные', active], ['К закупке', received], ['Завершены', completed]].map(([label, value]) => (
-              <div key={label} className="min-w-0 rounded-2xl border border-white/10 bg-white/[.08] px-3 py-4 backdrop-blur-sm sm:min-w-28 sm:px-4"><div className="text-[10px] uppercase tracking-wider text-white/45">{label}</div><div className="mt-2 text-2xl font-semibold">{value}</div></div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Link href="/orders/new" className="soft-card group rounded-[26px] bg-[#ed5b32] p-5 text-white transition hover:-translate-y-0.5 active:scale-[0.99]">
-          <div className="flex items-center justify-between"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/15 text-xl">＋</div><span className="text-2xl text-white/60 transition group-hover:translate-x-1 group-hover:text-white">→</span></div>
-          <div className="mt-7 text-lg font-semibold">Новый заказ</div>
-          <div className="mt-1 text-sm text-white/70">Фото, цены и ссылка для клиента.</div>
-        </Link>
-        <Link href="/catalog" className="soft-card group rounded-[26px] bg-white p-5 ring-1 ring-black/5 transition hover:-translate-y-0.5 active:scale-[0.99]">
-          <div className="flex items-center justify-between"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#dff0e6] text-xl text-[#173c30]">▱</div><span className="text-2xl text-neutral-300 transition group-hover:translate-x-1 group-hover:text-[#ed5b32]">→</span></div>
-          <div className="mt-7 text-lg font-semibold text-[#173c30]">Каталог платков</div>
-          <div className="mt-1 text-sm text-neutral-500">Готовые позиции для быстрых заказов.</div>
-        </Link>
-      </div>
-
-      <section className="soft-card space-y-3 rounded-[26px] bg-white p-4 ring-1 ring-black/5 sm:p-5">
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <input aria-label="Поиск заказов" value={query} onChange={e => { setQuery(e.target.value); setPage(1) }} placeholder="Найти по названию или номеру…" className="h-12 min-w-0 flex-1 rounded-xl border border-neutral-200 px-4" />
-          <select aria-label="Сортировка заказов" value={sort} onChange={e => { setSort(e.target.value as typeof sort); setPage(1) }} className="rounded-xl border border-neutral-200 p-3 text-sm"><option value="newest">Сначала новые</option><option value="oldest">Сначала старые</option></select>
-          <button disabled={loading || !visible.length || !!error} onClick={() => downloadCsv('bayer-orders.csv', [['Номер', 'Название', 'Статус', 'Создан', 'Подтверждён'], ...visible.map(o => [o.order_number, o.title, statusLabel[o.status], o.created_at, o.confirmed_at])])} className="rounded-xl border border-neutral-200 px-4 py-3 text-sm font-medium text-[#173c30] transition hover:bg-[#f4f1eb] disabled:opacity-40">Скачать CSV</button>
-        </div>
-        <div className="flex flex-wrap gap-2" aria-label="Фильтр по статусу">
-          {(['all', ...Object.keys(statusLabel)] as (OrderStatus | 'all')[]).map(value => <button key={value} aria-pressed={status === value} onClick={() => { setStatus(value); setPage(1) }} className={'rounded-full px-3 py-2 text-xs font-medium transition ' + (status === value ? 'bg-[#173c30] text-white shadow-sm' : 'bg-[#f4f1eb] text-neutral-600 hover:bg-[#ebe6de]')}>{value === 'all' ? 'Все' : statusLabel[value]} · {value === 'all' ? orders.length : orders.filter(o => o.status === value).length}</button>)}
-        </div>
-      </section>
-      {error && <div role="alert" className="rounded-2xl bg-red-50 p-4 text-sm text-red-700">{error} <button onClick={() => { setError(''); setLoading(true); void loadOrders() }} className="ml-2 underline">Повторить</button></div>}
-      {loading ? (
-        <div className="rounded-[28px] bg-white p-8 text-sm text-neutral-500 shadow-sm ring-1 ring-black/5">Загрузка…</div>
-      ) : error ? null : orders.length === 0 ? (
-        <div className="rounded-[28px] border border-dashed border-neutral-300 bg-white p-10 text-center shadow-sm">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-100 text-2xl">＋</div>
-          <h2 className="mt-4 font-semibold">Пока нет заказов</h2>
-          <p className="mt-1 text-sm text-neutral-500">Первый платок автоматически попадёт в каталог.</p>
-          <Link href="/orders/new" className="mt-5 inline-flex rounded-2xl bg-black px-4 py-2.5 text-sm font-semibold text-white">Создать заказ</Link>
-        </div>
-      ) : (
-        <section>
-          <div className="mb-3 flex items-center justify-between"><div><p className="text-xs font-semibold uppercase tracking-[.15em] text-[#ed5b32]">Обзор</p><h2 className="mt-1 text-xl font-semibold text-[#173c30]">Список заказов</h2></div><span className="rounded-full bg-white px-3 py-1.5 text-sm text-neutral-500 shadow-sm ring-1 ring-black/5">{visible.length}</span></div>
-          {visible.length === 0 && <div className="rounded-2xl bg-white p-8 text-center text-neutral-500">Ничего не найдено. Измените поиск или статус.</div>}
-          <div className="grid gap-3">
-            {visible.slice((page - 1) * pageSize, page * pageSize).map((order) => (
-              <Link key={order.id} href={`/orders/${order.id}`} className="soft-card rounded-[24px] bg-white p-4 ring-1 ring-black/5 transition hover:-translate-y-0.5 hover:ring-[#173c30]/15 active:scale-[0.998]">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold">#{String(order.order_number).padStart(5, '0')}</span><span className={"rounded-full px-2.5 py-1 text-[11px] font-medium " + statusClass(order.status)}>{statusLabel[order.status]}</span></div>
-                    <h3 className="mt-2 truncate font-medium">{order.title}</h3>
-                    <p className="mt-1 text-xs text-neutral-500">{formatDate(order.created_at)}</p>
-                  </div>
-                  <span className="pt-1 text-xl text-neutral-300">›</span>
-                </div>
-              </Link>
-            ))}
-          </div>
-          {visible.length > pageSize && <div className="mt-4 flex items-center justify-between text-sm"><button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="rounded-xl bg-white px-4 py-3 disabled:opacity-40">← Назад</button><span>{page} / {Math.ceil(visible.length / pageSize)}</span><button disabled={page * pageSize >= visible.length} onClick={() => setPage(p => p + 1)} className="rounded-xl bg-white px-4 py-3 disabled:opacity-40">Далее →</button></div>}
-        </section>
-      )}
-    </div>
-  )
+        setOrders((data ?? []) as Order[]); setTotal(count ?? data?.length ?? 0); setError('')
+      } catch { if (!controller.signal.aborted) setError('Не удалось обновить заказы. Проверьте подключение.') }
+      finally { inFlight = false; if (current === version.current && !controller.signal.aborted) setLoading(false) }
+    }
+    void load()
+    const refresh = () => { if (document.visibilityState === 'visible') void load(true) }
+    const timer = setInterval(refresh,15000)
+    window.addEventListener('focus',refresh)
+    return () => { controller.abort();clearInterval(timer);window.removeEventListener('focus',refresh) }
+  }, [status, search, page, refreshKey])
+  useEffect(() => {
+    let live = true
+    async function loadStats() {
+      const supabase = createClient()
+      const results = await Promise.all([
+        supabase.from('buyer_orders').select('id',{count:'exact',head:true}).is('deleted_at',null).neq('status','completed'),
+        supabase.from('buyer_orders').select('id',{count:'exact',head:true}).is('deleted_at',null).eq('status','received'),
+        supabase.from('buyer_orders').select('id',{count:'exact',head:true}).is('deleted_at',null).eq('status','completed'),
+        supabase.rpc('buyer_finance_summary'),
+      ])
+      if (!live) return
+      if (results.slice(0,3).every(r => !r.error)) setStats({active:results[0].count ?? 0,received:results[1].count ?? 0,completed:results[2].count ?? 0})
+      if (!results[3].error && results[3].data?.[0]) setFinance(results[3].data[0] as FinanceSummary)
+    }
+    void loadStats()
+    const refresh = () => {if (document.visibilityState === 'visible') void loadStats()}
+    window.addEventListener('focus',refresh)
+    const timer = setInterval(refresh,60000)
+    return () => {live=false;clearInterval(timer);window.removeEventListener('focus',refresh)}
+  }, [refreshKey])
+  async function restoreOrder(id: string) {
+    const supabase = createClient()
+    const {error} = await supabase.from('buyer_orders').update({deleted_at:null}).eq('id',id).not('deleted_at','is',null)
+    if (error) setError('Не удалось восстановить заказ.')
+    else {setRefreshKey(key => key + 1);setPage(0)}
+  }
+  return <div>
+    <div className="dashboard-heading"><div><p className="eyebrow mb-3">Ваше рабочее пространство</p><h1 className="page-title">Заказы. Всё на месте.</h1><p className="subtitle mt-3">Меньше переписок. Больше ясности.</p></div><Link href="/orders/new" className="btn btn-primary"><Icon name="plus" size={18}/><span>Новый заказ</span></Link></div>
+    <section className="summary-strip" aria-label="Сводка заказов"><div className="summary-item"><span>В работе</span><strong>{stats.active}</strong></div><div className="summary-item"><span>Готовы к закупке</span><strong style={{color:'var(--accent)'}}>{stats.received}</strong></div><div className="summary-item"><span>Завершено</span><strong>{stats.completed}</strong></div></section>
+    <section aria-labelledby="finance-title"><div className="mb-3 flex items-center justify-between"><div><p className="eyebrow">Финансы</p><h2 id="finance-title" className="mt-1 text-xl font-semibold tracking-tight">За всё время</h2></div><span className="order-id">{finance?.confirmed_orders ?? 0} подтверждённых</span></div><div className="finance-card"><div className="finance-metric"><span>Выручка</span><strong>{formatSomoni(finance?.revenue ?? 0)}</strong></div><div className="finance-metric"><span>Потрачено</span><strong>{formatSomoni(finance?.spent ?? 0)}</strong></div><div className="finance-metric earned"><span>Заработано</span><strong>{formatSomoni(finance?.earned ?? 0)}</strong></div></div>{finance && <p className="-mt-4 mb-7 text-xs text-neutral-500">В этом месяце: заработано {formatSomoni(finance.month_earned)}, потрачено {formatSomoni(finance.month_spent)}</p>}</section>
+    <div className="search-field"><Icon name="search" size={18}/><input aria-label="Поиск заказов" placeholder="Найти по названию или номеру" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button aria-label="Очистить поиск" className="text-button" onClick={() => setQuery('')}>×</button>}</div>
+    <div className="filter-bar" aria-label="Фильтр по статусу">{(['all',...steps,'deleted'] as const).map(value => <button key={value} className="filter-pill" aria-pressed={status === value} onClick={() => {setStatus(value);setPage(0)}}>{value === 'all' ? 'Все заказы' : value === 'deleted' ? 'Корзина' : statusLabels[value]}</button>)}</div>
+    {error && <p role="alert" className="notice mb-5">{error} <button onClick={() => setRefreshKey(k => k + 1)} className="underline">Повторить</button></p>}
+    {loading ? <div className="order-grid" aria-label="Загрузка заказов" role="status"><div className="skeleton"/><div className="skeleton"/></div> : !orders.length ? <div className="empty-state"><div className="empty-icon"><Icon name={status === 'deleted' ? 'trash' : search ? 'search' : 'bag'} size={28}/></div><h2 className="text-xl font-semibold tracking-tight">{search ? 'Ничего не найдено' : status === 'deleted' ? 'Корзина пуста' : status !== 'all' ? 'Здесь пока пусто' : 'Начните с одной подборки'}</h2><p className="subtitle mt-3 mb-6">{search ? 'Попробуйте другое название или номер заказа.' : status === 'deleted' ? 'Удалённые заказы можно восстановить здесь.' : 'Добавьте фото, отправьте ссылку — остальное выберет клиент.'}</p>{search ? <button className="btn btn-secondary" onClick={() => setQuery('')}>Сбросить поиск</button> : status !== 'deleted' && <Link href="/orders/new" className="btn btn-primary"><Icon name="plus" size={18}/>Создать заказ</Link>}</div> : <div className="order-grid">{orders.map(order => status === 'deleted' ? <article key={order.id} className="order-card"><div className="flex items-center justify-between gap-3 mb-5"><span className="order-id">№ {String(order.order_number).padStart(5,'0')}</span><span className="status-badge">Удалён</span></div><h2>{order.title}</h2><p className="order-date mt-3"><Icon name="clock" size={13}/>{dateFormatter.format(new Date(order.deleted_at || order.created_at))}</p><button className="btn btn-secondary mt-5" onClick={() => void restoreOrder(order.id)}><Icon name="restore" size={16}/>Восстановить</button></article> : <Link key={order.id} href={'/orders/' + order.id} className="order-card"><div className="flex items-center justify-between gap-3 mb-5"><span className="order-id">№ {String(order.order_number).padStart(5,'0')}</span><span className={'status-badge status-' + order.status}>{statusLabels[order.status]}</span></div><div className="flex items-center justify-between gap-4"><h2>{order.title}</h2><Icon name="arrow" size={16} className="shrink-0 text-neutral-400"/></div><p className="order-date mt-3"><Icon name="clock" size={13}/>{order.confirmed_at ? 'Подтверждён ' : ''}{dateFormatter.format(new Date(order.confirmed_at || order.created_at))}</p><div className="order-progress" aria-hidden="true">{steps.map((step,index) => <span key={step} className={index === steps.indexOf(order.status) ? 'current' : index < steps.indexOf(order.status) ? 'filled' : ''}/>)}</div></Link>)}</div>}
+    {total > pageSize && <div className="mt-6 flex items-center justify-between"><button className="btn btn-secondary" disabled={!page || loading} onClick={() => setPage(p => p-1)}>Назад</button><span className="text-xs text-neutral-500">{page+1} / {Math.ceil(total/pageSize)}</span><button className="btn btn-secondary" disabled={(page+1)*pageSize >= total || loading} onClick={() => setPage(p => p+1)}>Далее</button></div>}
+    {!loading && orders.length > 0 && <p className="mt-7 text-center text-xs text-neutral-400">Подтверждения появляются автоматически</p>}
+  </div>
 }
