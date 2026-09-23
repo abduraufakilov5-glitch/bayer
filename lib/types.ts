@@ -16,7 +16,7 @@ export type CatalogProduct = {
   id: string
   owner_id: string
   name: string
-  price_cny: number
+  price_cny: number | null
   work_price_somoni: number
   weight_grams: number
   supplier_url: string | null

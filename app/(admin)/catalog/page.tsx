@@ -56,10 +56,10 @@ export default function CatalogPage() {
   }
 
   async function saveEdit(item: CatalogProduct) {
-    const cny = parseDecimal(draft.price_cny)
+    const cny = draft.price_cny.trim() ? parseDecimal(draft.price_cny) : null
     const work = parseDecimal(draft.work_price_somoni)
     const weight = Number(draft.weight_grams)
-    if (!validPricing(draft.name, cny, work, weight) || (!!draft.supplier_url.trim() && !safeSupplierUrl(draft.supplier_url))) {
+    if (!validPricing(draft.name, cny ?? 0, work, weight) || (!!draft.supplier_url.trim() && !safeSupplierUrl(draft.supplier_url))) {
       setError('Проверьте название, цену, работу и вес.')
       return
     }
@@ -85,12 +85,12 @@ export default function CatalogPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="catalog-page space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <Link href="/dashboard" className="text-sm text-neutral-500">← Заказы</Link>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight">Каталог</h1>
-          <p className="mt-1 text-sm text-neutral-500">Платки, которые уже были добавлены. Повторно фото загружать не нужно.</p>
+          <p className="mt-1 text-sm text-neutral-500">Все ранее добавленные товары. Фото повторно загружать не нужно.</p>
         </div>
         <Link href="/orders/new" className="inline-flex justify-center rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-black/10">＋ Новый заказ</Link>
       </div>
@@ -100,7 +100,7 @@ export default function CatalogPage() {
           <button onClick={() => setShowArchived(false)} className={"flex-1 rounded-xl px-3 py-2.5 text-sm font-medium " + (!showArchived ? 'bg-white shadow-sm' : 'text-neutral-500')}>Активные · {items.filter((x) => x.active).length}</button>
           <button onClick={() => setShowArchived(true)} className={"flex-1 rounded-xl px-3 py-2.5 text-sm font-medium " + (showArchived ? 'bg-white shadow-sm' : 'text-neutral-500')}>Скрытые · {items.filter((x) => !x.active).length}</button>
         </div>
-        <input aria-label="Поиск в каталоге" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск платка…" className="mt-3 h-12 w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 outline-none focus:border-black focus:bg-white" />
+        <input aria-label="Поиск в каталоге" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск товара…" className="mt-3 h-12 w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 outline-none focus:border-black focus:bg-white" />
       </section>
 
       {error && <div role="alert" className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
@@ -108,13 +108,13 @@ export default function CatalogPage() {
       {loading ? <p role="status">Загрузка каталога…</p> : error && !items.length ? <button onClick={() => { setError(''); setLoading(true); void load() }}>Повторить загрузку</button> : visible.length === 0 ? (
         <div className="rounded-[28px] border border-dashed border-neutral-300 bg-white p-10 text-center">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-100 text-2xl">▱</div>
-          <h2 className="mt-4 font-semibold">{search.trim() ? 'Ничего не найдено' : showArchived ? 'Нет скрытых платков' : 'Каталог пока пуст'}</h2>
+          <h2 className="mt-4 font-semibold">{search.trim() ? 'Ничего не найдено' : showArchived ? 'Нет скрытых товаров' : 'Каталог пока пуст'}</h2>
           <p className="mt-1 text-sm text-neutral-500">{search.trim() ? 'Попробуйте другое название.' : 'Добавьте товар при создании заказа.'}</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {visible.map((item) => {
-            const finalPrice = calculateClientPrice(item.price_cny, item.work_price_somoni, item.weight_grams)
+            const finalPrice = item.price_cny == null ? null : calculateClientPrice(item.price_cny, item.work_price_somoni, item.weight_grams)
             return (
               <article key={item.id} className="overflow-hidden rounded-[24px] bg-white shadow-[0_8px_30px_rgba(0,0,0,0.05)] ring-1 ring-black/5">
                 <div className="aspect-square bg-neutral-100">
@@ -136,8 +136,8 @@ export default function CatalogPage() {
                   ) : (
                     <>
                       <div className="truncate font-medium">{item.name}</div>
-                      <div className="mt-1 text-sm font-semibold">{formatSomoni(finalPrice)}</div>
-                      <div className="mt-1 text-[11px] text-neutral-500">¥{item.price_cny} · карго {formatSomoni(calculateCargo(item.weight_grams))} · работа {formatSomoni(item.work_price_somoni)}</div>
+                      <div className="mt-1 text-sm font-semibold">{finalPrice == null ? 'Без цены' : formatSomoni(finalPrice)}</div>
+                      <div className="mt-1 text-[11px] text-neutral-500">{item.price_cny == null ? 'Цена не указана' : `¥${item.price_cny} · карго ${formatSomoni(calculateCargo(item.weight_grams))} · работа ${formatSomoni(item.work_price_somoni)}`}</div>
                       <div className="mt-3 flex items-center gap-2 text-xs">
                         <button onClick={() => startEdit(item)} className="rounded-xl bg-neutral-100 px-3 py-2 font-medium">Изменить</button>
                         <button onClick={() => toggleActive(item)} className="rounded-xl bg-neutral-100 px-3 py-2 font-medium">{item.active ? 'Скрыть' : 'Вернуть'}</button>

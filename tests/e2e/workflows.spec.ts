@@ -38,6 +38,15 @@ test('buyer signs in, filters, opens immutable order and signs out', async ({ pa
   await expect(page).toHaveURL(/dashboard/)
   await expect(page.getByRole('heading', {name:'Осенняя закупка'})).toBeVisible()
   await expect(page.getByText('451,2 смн', {exact:true})).toBeVisible()
+  await page.getByRole('link',{name:'Каталог',exact:true}).click()
+  await expect(page.getByRole('heading',{name:'Каталог',exact:true})).toBeVisible()
+  await expect(page.getByText('Шёлковый платок',{exact:true})).toBeVisible()
+  await page.getByRole('link',{name:'Создать',exact:true}).click()
+  await expect(page.getByRole('heading',{name:'Выбрать из каталога',exact:true})).toBeVisible()
+  await page.getByRole('button',{name:/Шёлковый платок/}).click()
+  await expect(page.getByText('Товар 01 · из каталога',{exact:true})).toBeVisible()
+  await page.getByRole('link',{name:'Заказы',exact:true}).click()
+  await expect(page).toHaveURL(/dashboard/)
   const typography = await page.locator('body').evaluate(element => {
     const style = getComputedStyle(element)
     return {family:style.fontFamily,spacing:style.letterSpacing}
