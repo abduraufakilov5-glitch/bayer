@@ -230,6 +230,50 @@ test('cargo, notes, revisions, procurement, cash, retention and safe storage que
       },
     )
     await t.test(
+      'purchase corrections keep previous-month costs and record only the new delta',
+      async () => {
+        await db.exec('begin; reset role')
+        await db.query(
+          "update public.buyer_purchase_events set occurred_at=date_trunc('month',now())-interval '1 day' where order_id=$1 and cost_delta<>0",
+          [order],
+        )
+        await db.exec('set role authenticated')
+        await db.query(
+          "select public.buyer_save_purchase($1,$2,2,3,0,40,1.3,14.4,2,'Докупить остаток')",
+          [order, product],
+        )
+        const months = (
+          await db.query<{ previous: boolean; actual_spent: string }>(
+            "select month<date_trunc('month',now())::date previous,actual_spent from public.buyer_finance_monthly() order by month",
+          )
+        ).rows
+        assert.deepEqual(
+          months.map((row) => ({
+            previous: row.previous,
+            cost: Number(row.actual_spent),
+          })),
+          [
+            { previous: true, cost: 115.6 },
+            { previous: false, cost: 56.8 },
+          ],
+        )
+        const events = (
+          await db.query<{ cost_delta: string }>(
+            'select cost_delta from public.buyer_purchase_events order by version',
+          )
+        ).rows
+        assert.deepEqual(
+          events.map((row) => Number(row.cost_delta)),
+          [0, 115.6, 56.8],
+        )
+        await assert.rejects(
+          db.query('delete from public.buyer_purchase_events'),
+          /permission denied/,
+        )
+        await db.exec('rollback')
+      },
+    )
+    await t.test(
       'reapproval retains purchase and history; stale revisions and reductions blocked',
       async () => {
         await db.query("select public.buyer_order_action($1,'reopen')", [order])
@@ -311,6 +355,11 @@ test('cargo, notes, revisions, procurement, cash, retention and safe storage que
         )
         assert.equal(
           (await db.query('select * from public.buyer_cash_entries')).rows
+            .length,
+          0,
+        )
+        assert.equal(
+          (await db.query('select * from public.buyer_purchase_events')).rows
             .length,
           0,
         )

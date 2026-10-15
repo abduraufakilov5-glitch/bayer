@@ -10,6 +10,18 @@ alter table public.buyer_submission_items add column note text not null default 
 update public.buyer_submission_items si set image_path=p.image_path,supplier_url=p.supplier_url,price_cny=p.price_cny,cargo_cost=p.cargo_cost,work_price_somoni=p.work_price_somoni,weight_grams=p.weight_grams from public.buyer_products p where p.id=si.product_id;
 update public.buyer_submission_items set cost_price=null where price_cny is null or cargo_cost is null;
 create table public.buyer_purchases(order_id uuid not null references public.buyer_orders(id) on delete cascade,product_id uuid primary key references public.buyer_products(id) on delete cascade,purchased_quantity integer not null default 0 check(purchased_quantity between 0 and 99),cancelled_quantity integer not null default 0 check(cancelled_quantity between 0 and 99),actual_price_cny numeric check(actual_price_cny between 0 and 1000000),actual_exchange_rate numeric check(actual_exchange_rate>0 and actual_exchange_rate<=10000),actual_cargo numeric check(actual_cargo between 0 and 1000000),extra_cost numeric not null default 0 check(extra_cost between 0 and 1000000),problem text not null default '' check(length(problem)<=300),version integer not null default 0,updated_at timestamptz not null default now());
+-- Immutable cost movements preserve the month of each partial purchase/correction.
+alter table public.buyer_purchases add column last_known_cost numeric not null default 0;
+create table public.buyer_purchase_events(
+ id uuid primary key default gen_random_uuid(),
+ order_id uuid not null references public.buyer_orders(id) on delete cascade,
+ product_id uuid references public.buyer_products(id) on delete set null,
+ version integer not null,
+ cost_delta numeric not null,
+ occurred_at timestamptz not null default now(),
+ unique(product_id,version)
+);
+create index buyer_purchase_events_order_date_idx on public.buyer_purchase_events(order_id,occurred_at);
 -- A cancellation can still have actual cargo/additional expenses, even with zero purchased units.
 create function public.buyer_actual_cost(p_quantity integer,p_cny numeric,p_rate numeric,p_cargo numeric,p_extra numeric)
 returns numeric language sql immutable set search_path='' as $$
@@ -24,9 +36,10 @@ create table public.buyer_image_gc(path text primary key,queued_at timestamptz n
 create table public.buyer_job_lease(name text primary key,token uuid not null,expires_at timestamptz not null);
 create table public.buyer_rate_limits(key text primary key,window_start timestamptz not null,hits integer not null);
 create table public.buyer_job_runs(id bigint generated always as identity primary key,ran_at timestamptz not null default now(),orders_deleted integer not null,images_deleted integer not null,failures integer not null);
-do $$ declare t text; begin foreach t in array array['buyer_purchases','buyer_cash_entries','buyer_financial_months','buyer_image_gc','buyer_job_lease','buyer_rate_limits','buyer_job_runs'] loop execute format('alter table public.%I enable row level security',t);execute format('revoke all on public.%I from public,anon,authenticated',t);end loop;end $$;
-grant select on public.buyer_purchases,public.buyer_cash_entries,public.buyer_financial_months to authenticated;
+do $$ declare t text; begin foreach t in array array['buyer_purchases','buyer_purchase_events','buyer_cash_entries','buyer_financial_months','buyer_image_gc','buyer_job_lease','buyer_rate_limits','buyer_job_runs'] loop execute format('alter table public.%I enable row level security',t);execute format('revoke all on public.%I from public,anon,authenticated',t);end loop;end $$;
+grant select on public.buyer_purchases,public.buyer_purchase_events,public.buyer_cash_entries,public.buyer_financial_months to authenticated;
 create policy buyer_purchases_owner on public.buyer_purchases for select to authenticated using(exists(select 1 from public.buyer_orders o where o.id=order_id and o.owner_id=(select auth.uid())));
+create policy buyer_purchase_events_owner on public.buyer_purchase_events for select to authenticated using(exists(select 1 from public.buyer_orders o where o.id=order_id and o.owner_id=(select auth.uid())));
 create policy buyer_cash_owner on public.buyer_cash_entries for select to authenticated using(exists(select 1 from public.buyer_orders o where o.id=order_id and o.owner_id=(select auth.uid())));
 create policy buyer_months_owner on public.buyer_financial_months for select to authenticated using(owner_id=(select auth.uid()));
 grant all on public.buyer_image_gc,public.buyer_job_lease,public.buyer_rate_limits,public.buyer_job_runs to service_role;
@@ -139,7 +152,7 @@ begin
  update public.buyer_orders set status='received',confirmed_at=receipt.confirmed_at where id=target.id;return query select receipt.id,target.id,target.order_number,receipt.total_quantity,receipt.confirmed_at,cardinality(ids);
 end $$;
 create function public.buyer_save_purchase(p_order uuid,p_product uuid,p_version integer,p_quantity integer,p_cancelled integer,p_cny numeric,p_rate numeric,p_cargo numeric,p_extra numeric,p_problem text) returns public.buyer_purchases language plpgsql security definer set search_path='' as $$
-declare target public.buyer_orders%rowtype;result public.buyer_purchases%rowtype;qty integer;
+declare target public.buyer_orders%rowtype;result public.buyer_purchases%rowtype;qty integer; next_cost numeric; delta numeric;
 begin
  select * into target from public.buyer_orders where id=p_order and owner_id=auth.uid() and deleted_at is null for update;
  if not found or target.status not in ('received','ordered') or target.created_at<=now()-interval '25 days' then raise exception 'Purchase unavailable';end if;
@@ -147,7 +160,9 @@ begin
  if qty is null or p_quantity+p_cancelled>qty then raise exception 'Invalid purchase quantity';end if;
  insert into public.buyer_purchases(order_id,product_id) values(p_order,p_product) on conflict do nothing;select * into result from public.buyer_purchases where product_id=p_product;
  if p_version is null or result.version<>p_version then raise exception 'Purchase changed; reload';end if;
- update public.buyer_purchases set purchased_quantity=p_quantity,cancelled_quantity=p_cancelled,actual_price_cny=p_cny,actual_exchange_rate=p_rate,actual_cargo=p_cargo,extra_cost=p_extra,problem=p_problem,version=version+1,updated_at=now() where product_id=p_product returning * into result;return result;
+ next_cost:=public.buyer_actual_cost(p_quantity,p_cny,p_rate,p_cargo,p_extra);delta:=case when next_cost is null then 0 else next_cost-result.last_known_cost end;
+ update public.buyer_purchases set purchased_quantity=p_quantity,cancelled_quantity=p_cancelled,actual_price_cny=p_cny,actual_exchange_rate=p_rate,actual_cargo=p_cargo,extra_cost=p_extra,problem=p_problem,last_known_cost=coalesce(next_cost,last_known_cost),version=version+1,updated_at=now() where product_id=p_product returning * into result;
+ insert into public.buyer_purchase_events(order_id,product_id,version,cost_delta) values(p_order,p_product,result.version,delta);return result;
 end $$;
 create function public.buyer_record_cash(p_id uuid,p_order uuid,p_kind text,p_amount numeric) returns void language plpgsql security definer set search_path='' as $$
 begin
@@ -171,7 +186,8 @@ begin
  insert into public.buyer_financial_months(owner_id,month,cash_received,actual_spent,unknown_costs)
  select old.owner_id,m,sum(cash),sum(cost),sum(unknowns)::int from (
  select date_trunc('month',created_at at time zone 'UTC')::date m,case kind when 'payment' then amount when 'refund' then -amount else 0 end cash,case kind when 'expense' then amount when 'expense_refund' then -amount else 0 end cost,0 unknowns from public.buyer_cash_entries where order_id=old.id
- union all select date_trunc('month',updated_at at time zone 'UTC')::date,0,coalesce(public.buyer_actual_cost(purchased_quantity,actual_price_cny,actual_exchange_rate,actual_cargo,extra_cost),0),case when purchased_quantity>0 and (actual_price_cny is null or actual_exchange_rate is null or actual_cargo is null) then 1 else 0 end from public.buyer_purchases where order_id=old.id and (purchased_quantity>0 or coalesce(actual_cargo,0)>0 or extra_cost>0)
+ union all select date_trunc('month',updated_at at time zone 'UTC')::date,0,0,case when purchased_quantity>0 and (actual_price_cny is null or actual_exchange_rate is null or actual_cargo is null) then 1 else 0 end from public.buyer_purchases where order_id=old.id and (purchased_quantity>0 or coalesce(actual_cargo,0)>0 or extra_cost>0)
+ union all select date_trunc('month',occurred_at at time zone 'UTC')::date,0,cost_delta,0 from public.buyer_purchase_events where order_id=old.id
  ) a group by m on conflict(owner_id,month) do update set cash_received=public.buyer_financial_months.cash_received+excluded.cash_received,actual_spent=public.buyer_financial_months.actual_spent+excluded.actual_spent,unknown_costs=public.buyer_financial_months.unknown_costs+excluded.unknown_costs;
  insert into public.buyer_financial_months(owner_id,month,unknown_costs) select old.owner_id,date_trunc('month',s.confirmed_at at time zone 'UTC')::date,count(*)::int from public.buyer_submissions s join public.buyer_submission_items si on si.submission_id=s.id left join public.buyer_purchases p on p.product_id=si.product_id where s.order_id=old.id and s.revision=old.revision and coalesce(p.purchased_quantity,0)+coalesce(p.cancelled_quantity,0)<si.quantity group by s.confirmed_at on conflict(owner_id,month) do update set unknown_costs=public.buyer_financial_months.unknown_costs+excluded.unknown_costs;
  insert into public.buyer_image_gc(path) select distinct x from public.buyer_submission_items si join public.buyer_submissions s on s.id=si.submission_id cross join lateral unnest(array[si.image_path,si.thumbnail_path]) x where s.order_id=old.id and x is not null on conflict do nothing;return old;
@@ -205,7 +221,8 @@ create function public.buyer_finance_summary() returns jsonb language sql stable
  with chosen as(select si.*,greatest(0,si.quantity-coalesce(p.cancelled_quantity,0)) effective_quantity from public.buyer_submission_items si left join public.buyer_purchases p on p.product_id=si.product_id join public.buyer_submissions s on s.id=si.submission_id join public.buyer_orders o on o.id=s.order_id where o.owner_id=auth.uid() and o.deleted_at is null and o.revision=s.revision),
  planned as(select case when count(*) filter(where price is null and effective_quantity>0)>0 then null else coalesce(sum(price*effective_quantity),0) end revenue,case when count(*) filter(where cost_price is null and effective_quantity>0)>0 then null else coalesce(sum(cost_price*effective_quantity),0) end spent from chosen),
  cash as(select coalesce(sum(case kind when 'payment' then amount when 'refund' then -amount else 0 end),0) received,coalesce(sum(case kind when 'expense' then amount when 'expense_refund' then -amount else 0 end),0) spent from public.buyer_cash_entries),
- purchases as(select coalesce(sum(public.buyer_actual_cost(purchased_quantity,actual_price_cny,actual_exchange_rate,actual_cargo,extra_cost)),0) spent,count(*) filter(where purchased_quantity>0 and (actual_price_cny is null or actual_exchange_rate is null or actual_cargo is null)) unknowns from public.buyer_purchases where purchased_quantity>0 or coalesce(actual_cargo,0)>0 or extra_cost>0),
+ purchases as(select coalesce((select sum(cost_delta) from public.buyer_purchase_events),0) spent,
+ (select count(*) from public.buyer_purchases where purchased_quantity>0 and (actual_price_cny is null or actual_exchange_rate is null or actual_cargo is null)) unknowns),
  history as(select coalesce(sum(cash_received),0) received,coalesce(sum(actual_spent),0) spent,coalesce(sum(unknown_costs),0) unknowns from public.buyer_financial_months)
  select jsonb_build_object('planned_revenue',planned.revenue,'planned_cost',planned.spent,'planned_profit',planned.revenue-planned.spent,'cash_received',cash.received+history.received,'actual_spent',case when purchases.unknowns+history.unknowns>0 then null else cash.spent+purchases.spent+history.spent end,'actual_profit',case when purchases.unknowns+history.unknowns>0 or exists(select 1 from chosen c left join public.buyer_purchases p on p.product_id=c.product_id where coalesce(p.purchased_quantity,0)+coalesce(p.cancelled_quantity,0)<c.quantity) then null else cash.received+history.received-cash.spent-purchases.spent-history.spent end) from planned,cash,purchases,history
 $$;
@@ -232,9 +249,10 @@ language sql stable security invoker set search_path='' as $$
  case c.kind when 'payment' then c.amount when 'refund' then -c.amount else 0 end,
  case c.kind when 'expense' then c.amount when 'expense_refund' then -c.amount else 0 end,0 from public.buyer_cash_entries c
  union all select date_trunc('month',p.updated_at at time zone 'UTC')::date,0,
- coalesce(public.buyer_actual_cost(p.purchased_quantity,p.actual_price_cny,p.actual_exchange_rate,p.actual_cargo,p.extra_cost),0),
+ 0,
  case when p.purchased_quantity>0 and (p.actual_price_cny is null or p.actual_exchange_rate is null or p.actual_cargo is null) then 1 else 0 end
  from public.buyer_purchases p where p.purchased_quantity>0 or coalesce(p.actual_cargo,0)>0 or p.extra_cost>0
+ union all select date_trunc('month',e.occurred_at at time zone 'UTC')::date,0,e.cost_delta,0 from public.buyer_purchase_events e
  union all select date_trunc('month',s.confirmed_at at time zone 'UTC')::date,0,0,1
  from public.buyer_submissions s join public.buyer_orders o on o.id=s.order_id and o.revision=s.revision
  join public.buyer_submission_items si on si.submission_id=s.id left join public.buyer_purchases p on p.product_id=si.product_id
