@@ -17,17 +17,18 @@ export async function runMaintenance(
       result.orders_deleted += r.data
       if (r.data < 50) break
     }
-    const paths = await client.rpc('buyer_gc_paths', { p_token: token })
-    if (paths.error) throw paths.error
-    // Batches of 20 keep HTTP and memory bounded; failures stay queued with exponential backoff.
+    // Drain multiple batches: one 300-photo order has 600 objects including thumbnails.
     for (
-      let i = 0;
-      i < (paths.data?.length ?? 0) && Date.now() - started < 45000;
-      i += 20
+      let batchNumber = 0;
+      batchNumber < 50 && Date.now() - started < 45000;
+      batchNumber++
     ) {
-      const batch = (paths.data as { path: string }[])
-        .slice(i, i + 20)
-        .map((p) => p.path)
+      const paths = await client.rpc('buyer_gc_paths', { p_token: token })
+      if (paths.error) throw paths.error
+      const batch = ((paths.data as { path: string }[]) ?? []).map(
+        (p) => p.path,
+      )
+      if (!batch.length) break
       const removed = await client.storage
         .from('buyer-product-images')
         .remove(batch)

@@ -21,11 +21,17 @@ export async function GET(request: Request) {
       { error: 'Maintenance not configured' },
       { status: 503 },
     )
+  const deadline = Date.now() + 55000
   const client = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: {
       fetch: (input, init) =>
-        fetch(input, { ...init, signal: AbortSignal.timeout(10000) }),
+        fetch(input, {
+          ...init,
+          signal: AbortSignal.timeout(
+            Math.max(1, Math.min(10000, deadline - Date.now())),
+          ),
+        }),
     },
   })
   try {
