@@ -29,6 +29,14 @@ export default function DashboardPage() {
   const [page, setPage] = useState(0)
   const [total, setTotal] = useState(0)
   const [stats, setStats] = useState({ active: 0, received: 0, completed: 0 })
+  const [months, setMonths] = useState<
+    {
+      month: string
+      cash_received: number
+      actual_spent: number | null
+      actual_profit: number | null
+    }[]
+  >([])
   const [finance, setFinance] = useState<FinanceSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -128,6 +136,7 @@ export default function DashboardPage() {
           .is('deleted_at', null)
           .eq('status', 'completed'),
         supabase.rpc('buyer_finance_summary'),
+        supabase.rpc('buyer_finance_monthly'),
       ])
       if (!live) return
       if (results.slice(0, 3).every((r) => !r.error))
@@ -136,6 +145,7 @@ export default function DashboardPage() {
           received: results[1].count ?? 0,
           completed: results[2].count ?? 0,
         })
+      if (!results[4].error) setMonths(results[4].data ?? [])
       if (!results[3].error && results[3].data)
         setFinance(results[3].data as FinanceSummary)
     }
@@ -222,6 +232,28 @@ export default function DashboardPage() {
             </div>
           ))}
         </div>
+        {months.length > 0 && (
+          <details className="panel panel-padding mb-6">
+            <summary>Финансы по месяцам</summary>
+            {months.map((m) => (
+              <div key={m.month} className="mt-4">
+                <strong>
+                  {new Intl.DateTimeFormat('ru-RU', {
+                    month: 'long',
+                    year: 'numeric',
+                    timeZone: 'UTC',
+                  }).format(new Date(m.month))}
+                </strong>
+                <p className="subtitle text-sm">
+                  Получено {formatSomoni(m.cash_received)} · расходы{' '}
+                  {formatSomoni(m.actual_spent)}
+                  <br />
+                  Фактическая прибыль {formatSomoni(m.actual_profit)}
+                </p>
+              </div>
+            ))}
+          </details>
+        )}
       </section>
       <div className="search-field">
         <Icon name="search" size={18} />

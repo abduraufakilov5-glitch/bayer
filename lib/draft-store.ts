@@ -1,10 +1,44 @@
-// IndexedDB stores Blobs, not base64. Local recovery expires with the server order.
+// IndexedDB stores binary buffers: WebKit private contexts can reject Blob values.
 export type LocalDraft<T> = {
   id: string
   owner: string
   updatedAt: number
   expiresAt: number
   data: T
+}
+type StoredBlob = { __bayerBlob: 1; type: string; bytes: ArrayBuffer }
+async function encode(value: unknown): Promise<unknown> {
+  if (value instanceof Blob)
+    return {
+      __bayerBlob: 1,
+      type: value.type,
+      bytes: await value.arrayBuffer(),
+    } satisfies StoredBlob
+  if (Array.isArray(value)) {
+    const result = []
+    for (const item of value) result.push(await encode(item))
+    return result
+  }
+  if (value && typeof value === 'object') {
+    const result: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(value))
+      result[key] = await encode(item)
+    return result
+  }
+  return value
+}
+function decode(value: unknown): unknown {
+  if (value instanceof Blob || value instanceof ArrayBuffer) return value
+  if (Array.isArray(value)) return value.map(decode)
+  if (value && typeof value === 'object') {
+    const blob = value as StoredBlob
+    if (blob.__bayerBlob === 1 && blob.bytes instanceof ArrayBuffer)
+      return new Blob([blob.bytes], { type: blob.type })
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, decode(item)]),
+    )
+  }
+  return value
 }
 async function database() {
   return new Promise<IDBDatabase>((resolve, reject) => {
@@ -16,13 +50,15 @@ async function database() {
   })
 }
 export async function writeDraft<T>(draft: LocalDraft<T>) {
-  const db = await database()
+  const stored = { ...draft, data: await encode(draft.data) },
+    db = await database()
   try {
     await new Promise<void>((resolve, reject) => {
       const t = db.transaction('drafts', 'readwrite')
-      t.objectStore('drafts').put(draft)
+      t.objectStore('drafts').put(stored)
       t.oncomplete = () => resolve()
       t.onerror = () => reject(t.error)
+      t.onabort = () => reject(t.error)
     })
   } finally {
     db.close()
@@ -34,21 +70,24 @@ export async function readDraft<T>(
 ): Promise<LocalDraft<T> | null> {
   const db = await database()
   try {
-    return await new Promise((resolve, reject) => {
+    const found = await new Promise<LocalDraft<T> | null>((resolve, reject) => {
+      let row: LocalDraft<T> | null = null
       const t = db.transaction('drafts', 'readwrite'),
-        store = t.objectStore('drafts'),
-        r = store.getAll()
+        r = t.objectStore('drafts').openCursor()
       r.onsuccess = () => {
-        let found: LocalDraft<T> | null = null
-        for (const row of r.result) {
-          if (row.expiresAt <= Date.now() || row.owner !== owner)
-            store.delete(row.id)
-          else if (row.id === id) found = row
-        }
-        t.oncomplete = () => resolve(found)
+        const cursor = r.result
+        if (!cursor) return
+        const current = cursor.value as LocalDraft<T>
+        if (current.expiresAt <= Date.now() || current.owner !== owner)
+          cursor.delete()
+        else if (current.id === id) row = current
+        cursor.continue()
       }
+      t.oncomplete = () => resolve(row)
       t.onerror = () => reject(t.error)
+      t.onabort = () => reject(t.error)
     })
+    return found ? { ...found, data: decode(found.data) as T } : null
   } finally {
     db.close()
   }

@@ -179,7 +179,21 @@ export function createHandler(
             revision: previous.revision,
             total_quantity: previous.total_quantity,
             confirmed_at: previous.confirmed_at,
-            items: previous.buyer_submission_items,
+            items: previous.buyer_submission_items.map(
+              (i: {
+                product_id: string
+                product_name: string
+                price: number | null
+                quantity: number
+                note: string
+              }) => ({
+                product_id: i.product_id,
+                product_name: i.product_name,
+                price: i.price,
+                quantity: i.quantity,
+                note: i.note,
+              }),
+            ),
           }
         : null
       if (order.status !== 'waiting')

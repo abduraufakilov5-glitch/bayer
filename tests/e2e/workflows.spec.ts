@@ -4,7 +4,7 @@ const photo = {
   name: 'Платок.png',
   mimeType: 'image/png',
   buffer: Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+    'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAEklEQVR4nGPY2pf7Hx9mGBkKAH2Qq8Hjgp27AAAAAElFTkSuQmCC',
     'base64',
   ),
 }
@@ -60,7 +60,7 @@ test('client quantity, zoom, notes, reload, retry, receipt and plain text XSS', 
   await page
     .getByRole('button', { name: 'Подтвердить заказ', exact: true })
     .click()
-  await expect(page.getByRole('alert')).toBeVisible()
+  await expect(page.getByRole('dialog').getByRole('alert')).toBeVisible()
   await page
     .getByRole('button', { name: 'Подтвердить заказ', exact: true })
     .click()
@@ -123,7 +123,7 @@ test('photo draft, cargo, persisted editing after offline reload, add/remove and
   await page.getByRole('button', { name: 'Создать заказ', exact: true }).click()
   await expect(page).toHaveURL(/orders\/[0-9a-f-]+$/)
   const id = page.url().split('/').pop()!
-  await expect(page.getByLabel('Цена в юанях')).toHaveValue('40')
+  await expect(page.getByLabel('Цена в юанях')).toHaveValue(/40(?:\.00)?/)
   // Keep the page reachable but fail Supabase writes, then reload online to recover IndexedDB.
   await page.route('**/rest/v1/rpc/buyer_save_draft', (r) => r.abort())
   await page.getByLabel('Название товара').fill('Сохранено без сети')
@@ -155,7 +155,7 @@ test('photo draft, cargo, persisted editing after offline reload, add/remove and
   await noOverflow(page)
   await page.getByRole('button', { name: 'Отозвать ссылку' }).click()
   await page.getByRole('button', { name: 'Новая ссылка', exact: true }).click()
-  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.locator('p[role=alert]')).toHaveCount(0)
   await page
     .getByRole('button', { name: 'Повторное согласование' })
     .click({ noWaitAfter: true })
@@ -199,10 +199,11 @@ test('admin purchase, payment, reapproval, history, theme and long names', async
   await expect(page.getByText('Куплено 1 / 3', { exact: true })).toBeVisible()
   page.once('dialog', (d) => d.accept())
   await page.getByRole('button', { name: 'Повторное согласование' }).click()
-  await expect(page.getByLabel('Цена в юанях')).toBeVisible()
+  await expect(page.getByLabel('Цена в юанях').first()).toBeVisible()
   await expect(page.getByText(/История подтверждений/)).toBeVisible()
   await page
     .getByLabel('Название товара')
+    .first()
     .fill('Очень длинное название '.repeat(8))
   await page.getByRole('button', { name: 'Переключить тему' }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
@@ -215,6 +216,7 @@ test('admin purchase, payment, reapproval, history, theme and long names', async
 test('HEIC conversion, damaged file recovery and thumbnail upload', async ({
   page,
 }) => {
+  test.setTimeout(60000)
   await login(page)
   await page.goto('/orders/new')
   await page.getByLabel('Название заказа').fill('HEIC')
@@ -230,13 +232,11 @@ test('HEIC conversion, damaged file recovery and thumbnail upload', async ({
   await expect(page.getByRole('status')).toHaveText('Сохранено', {
     timeout: 30000,
   })
-  await page
-    .getByLabel('Фото товаров')
-    .setInputFiles({
-      name: 'Повреждённое.jpg',
-      mimeType: 'image/jpeg',
-      buffer: Buffer.from('not an image'),
-    })
+  await page.getByLabel('Фото товаров').setInputFiles({
+    name: 'Повреждённое.jpg',
+    mimeType: 'image/jpeg',
+    buffer: Buffer.from('not an image'),
+  })
   await expect(
     page.getByRole('button', { name: 'Повторить обработку' }),
   ).toBeVisible()

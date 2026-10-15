@@ -62,6 +62,10 @@ async function reset() {
     [token, owner],
   )
   await db.query(
+    "insert into storage.objects(bucket_id,name) values('buyer-product-images',$1) on conflict do nothing",
+    [owner + '/photo.svg'],
+  )
+  await db.query(
     "insert into public.buyer_products(id,order_id,name,price_cny,cargo_cost,weight_grams,work_price_somoni,image_path) values($1,$2,'Шёлковый платок',35,2.4,80,5,$3),($4,$2,'Сумка без цены',null,2.4,80,0,$3)",
     [product, token, owner + '/photo.svg', unpriced],
   )

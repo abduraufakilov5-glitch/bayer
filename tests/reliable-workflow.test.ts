@@ -45,6 +45,10 @@ test('cargo, notes, revisions, procurement, cash, retention and safe storage que
           [order, cargo, version, JSON.stringify(items)],
         )
       ).rows[0]
+    await db.query(
+      "insert into storage.objects(bucket_id,name) values('buyer-product-images',$1),('buyer-product-images',$2)",
+      [item.image_path, item.thumbnail_path],
+    )
     let token = ''
     await t.test(
       'auto/air server prices match preview; idempotent saves and stale tabs',

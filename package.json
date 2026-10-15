@@ -34,5 +34,8 @@
     "tailwindcss": "4.3.3",
     "tsx": "4.23.15",
     "typescript": "5.9.2"
+  },
+  "overrides": {
+    "source-map-js": "1.2.2"
   }
 }

@@ -50,3 +50,13 @@ test('optional price preserves absent and zero values and rejects invalid inputs
   assert.equal(parseOptionalPrice('12,50'), 12.5)
   for (const value of ['-1', 'Infinity', '1.001', '1000001']) assert.ok(Number.isNaN(parseOptionalPrice(value)))
 })
+
+test('cargo options and absent purchase price; actual FX keeps four decimals', async () => {
+  const {parseExchangeRate} = await import('../lib/validation')
+  assert.equal(calculateClientPrice(40,10,80,30),68.4)
+  assert.equal(calculateClientPrice(40,10,80,60),70.8)
+  assert.equal(calculateClientPrice(null,10,80,60),null)
+  assert.equal(parseExchangeRate('1,3456'),1.3456)
+  assert.equal(parseExchangeRate(''),null)
+  assert.ok(Number.isNaN(parseExchangeRate('0')))
+})

@@ -206,18 +206,6 @@ export function OrderEditor({
         continue
       }
       const id = crypto.randomUUID()
-      let blob: Blob = file,
-        thumb: Blob | null = null,
-        error = ''
-      try {
-        const processed = await prepareImage(file)
-        blob = processed.image
-        thumb = processed.thumbnail
-      } catch (e) {
-        error = e instanceof Error ? e.message : 'Ошибка фото'
-      }
-      const preview = error ? '' : URL.createObjectURL(thumb ?? blob)
-      if (preview) urls.current.add(preview)
       change({
         products: [
           ...current.current.products,
@@ -229,16 +217,31 @@ export function OrderEditor({
             supplierUrl: '',
             imagePath: null,
             thumbnailPath: null,
-            blob,
-            thumb,
-            preview,
-            error,
+            blob: file,
+            thumb: null,
+            preview: '',
+            error: 'Обработка фото…',
           },
         ],
       })
       await persistChain.current.catch(() => {})
+      try {
+        const processed = await prepareImage(file),
+          preview = URL.createObjectURL(processed.thumbnail)
+        urls.current.add(preview)
+        update(id, {
+          blob: processed.image,
+          thumb: processed.thumbnail,
+          preview,
+          error: '',
+        })
+      } catch (e) {
+        update(id, { error: e instanceof Error ? e.message : 'Ошибка фото' })
+      }
+      await persistChain.current.catch(() => {})
     }
     setBusy(false)
+    setSaveTick((t) => t + 1)
   }
   async function save(navigate = false, publish = false) {
     if (saving.current || !current.current) return

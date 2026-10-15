@@ -23,6 +23,9 @@ export default function OrderDetailPage() {
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState(''),
     [cash, setCash] = useState(''),
+    [entries, setEntries] = useState<
+      { id: string; kind: string; amount: number; created_at: string }[]
+    >([]),
     [kind, setKind] = useState('payment')
   const cache = useRef<ImageCache>(new Map()),
     fetching = useRef(false),
@@ -34,7 +37,7 @@ export default function OrderDetailPage() {
     fetching.current = true
     try {
       const c = createClient(),
-        [o, p, s, b] = await Promise.all([
+        [o, p, s, b, cashRows] = await Promise.all([
           c.from('buyer_orders').select('*').eq('id', id).single(),
           c
             .from('buyer_products')
@@ -47,14 +50,21 @@ export default function OrderDetailPage() {
             .eq('order_id', id)
             .order('revision', { ascending: false }),
           c.from('buyer_purchases').select('*').eq('order_id', id),
+          c
+            .from('buyer_cash_entries')
+            .select('*')
+            .eq('order_id', id)
+            .order('created_at'),
         ])
-      if (o.error || p.error || s.error || b.error) throw new Error('load')
+      if (o.error || p.error || s.error || b.error || cashRows.error)
+        throw new Error('load')
       setOrder(o.data)
       setProducts(p.data ?? [])
       setSubmissions(
         (s.data ?? []).map((r) => ({ ...r, items: r.buyer_submission_items })),
       )
       setPurchases(b.data ?? [])
+      setEntries(cashRows.data ?? [])
       setImages(await signProductImages(c, p.data ?? [], cache.current))
       setError('')
     } catch {
@@ -136,6 +146,35 @@ export default function OrderDetailPage() {
       )
       return
     }
+    const pendingKey = 'bayer:cash:' + id
+    try {
+      const stored = JSON.parse(localStorage.getItem(pendingKey) ?? 'null')
+      if (stored && stored.expires > Date.now()) {
+        if (stored.kind !== kind || stored.amount !== amount) {
+          setError(
+            'Не завершена прежняя запись: ' +
+              stored.amount +
+              ' смн. Повторите её с тем же типом и суммой.',
+          )
+          return
+        }
+        cashId.current = stored.id
+      }
+      localStorage.setItem(
+        pendingKey,
+        JSON.stringify({
+          id: cashId.current,
+          kind,
+          amount,
+          expires: new Date(order!.created_at).getTime() + 25 * 86400000,
+        }),
+      )
+    } catch {
+      setError(
+        'Для безопасной записи платежа разрешите локальное хранилище браузера.',
+      )
+      return
+    }
     pendingCash.current = { kind, amount }
     actionLock.current = true
     setBusy(true)
@@ -150,7 +189,9 @@ export default function OrderDetailPage() {
       cashId.current = crypto.randomUUID()
       pendingCash.current = null
       setCash('')
+      localStorage.removeItem('bayer:cash:' + id)
       setNotice('Движение денег записано')
+      await load()
     } catch {
       setError(
         'Не удалось записать платёж. Повторите с той же суммой — двойной записи не будет.',
@@ -258,7 +299,10 @@ export default function OrderDetailPage() {
           key={order.id + ':' + order.revision}
           order={order}
           products={products}
-          onPublished={setOrder}
+          onPublished={(o) => {
+            setOrder(o)
+            void load()
+          }}
         />
       ) : (
         <>
@@ -304,6 +348,24 @@ export default function OrderDetailPage() {
           Подтверждение клиента не является оплатой. Расходы на товары и карго
           записывайте в закупке; здесь — только дополнительные движения денег.
         </p>
+        {entries.length > 0 && (
+          <ul className="mt-3 divide-y divide-neutral-100">
+            {entries.map((e) => (
+              <li className="py-2 text-sm" key={e.id}>
+                {new Date(e.created_at).toLocaleString('ru-RU')} ·{' '}
+                {
+                  {
+                    payment: 'Оплата',
+                    refund: 'Возврат клиенту',
+                    expense: 'Расход',
+                    expense_refund: 'Возврат расхода',
+                  }[e.kind]
+                }{' '}
+                · {formatSomoni(e.amount)}
+              </li>
+            ))}
+          </ul>
+        )}
         <select
           aria-label="Тип движения"
           className="mt-3"

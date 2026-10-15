@@ -39,3 +39,11 @@ export function parseOptionalPrice(value: string): number | null {
   const price = parseDecimal(value)
   return Number.isFinite(price) && price >= 0 && price <= 1_000_000 ? price : NaN
 }
+
+export function parseExchangeRate(value: string): number | null {
+  if (!value.trim()) return null
+  const normalized = value.trim().replace(',', '.')
+  if (!/^\d+(?:\.\d{1,4})?$/.test(normalized)) return NaN
+  const rate = Number(normalized)
+  return rate > 0 && rate <= 10000 ? rate : NaN
+}

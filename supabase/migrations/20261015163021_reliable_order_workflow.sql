@@ -66,6 +66,7 @@ create function public.buyer_save_draft(p_id uuid,p_title text,p_cargo text,p_ve
 declare target public.buyer_orders%rowtype;item jsonb;ids uuid[]:='{}';
 begin
  if auth.uid() is null then raise exception 'Unauthorized';end if;
+ if p_version is null or p_version<0 then raise exception 'Invalid version';end if;
  if length(trim(p_title)) not between 1 and 140 or p_cargo not in ('auto','air') or jsonb_typeof(p_products) is distinct from 'array' or jsonb_array_length(p_products)>300 then raise exception 'Invalid draft';end if;
  insert into public.buyer_orders(id,owner_id,title) values(p_id,auth.uid(),trim(p_title)) on conflict(id) do nothing;
  select * into target from public.buyer_orders where id=p_id for update;
@@ -78,6 +79,9 @@ begin
  if (item->>'id')::uuid=any(ids) then raise exception 'Duplicate product';end if;ids:=array_append(ids,(item->>'id')::uuid);
  if exists(select 1 from public.buyer_products where id=(item->>'id')::uuid and order_id<>p_id) then raise exception 'Invalid product';end if;
  if jsonb_typeof(item->'name') is distinct from 'string' or jsonb_typeof(item->'weight_grams') is distinct from 'number' or jsonb_typeof(item->'work_price_somoni') is distinct from 'number' or not(item ? 'price_cny') or (item->>'weight_grams') !~ '^[0-9]+$' then raise exception 'Invalid pricing';end if;
+ perform pg_advisory_xact_lock(hashtext(item->>'image_path'));
+ if not exists(select 1 from storage.objects where bucket_id='buyer-product-images' and name=item->>'image_path') then raise exception 'Image upload expired; upload again';end if;
+ if item->>'thumbnail_path' is not null and not exists(select 1 from storage.objects where bucket_id='buyer-product-images' and name=item->>'thumbnail_path') then raise exception 'Thumbnail upload expired; upload again';end if;
  if length(trim(item->>'name')) not between 1 and 200 or (item->>'weight_grams')::int not between 1 and 5000 or (item->>'work_price_somoni')::numeric not between 0 and 1000000 or (item->>'price_cny')::numeric not between 0 and 1000000 then raise exception 'Invalid pricing';end if;
  insert into public.buyer_products(id,order_id,name,price_cny,weight_grams,work_price_somoni,image_path,thumbnail_path,supplier_url,sort_order) values((item->>'id')::uuid,p_id,trim(item->>'name'),(item->>'price_cny')::numeric,(item->>'weight_grams')::int,(item->>'work_price_somoni')::numeric,item->>'image_path',item->>'thumbnail_path',nullif(item->>'supplier_url',''),cardinality(ids)-1)
  on conflict(id) do update set name=excluded.name,price_cny=excluded.price_cny,weight_grams=excluded.weight_grams,work_price_somoni=excluded.work_price_somoni,image_path=excluded.image_path,thumbnail_path=excluded.thumbnail_path,supplier_url=excluded.supplier_url,sort_order=excluded.sort_order;
@@ -102,6 +106,7 @@ create function public.submit_buyer_order(p_token uuid,p_items jsonb,p_note text
 returns table(submission_id uuid,order_id uuid,order_number bigint,total_quantity integer,confirmed_at timestamptz) language plpgsql security definer set search_path='' as $$
 declare target public.buyer_orders%rowtype;receipt public.buyer_submissions%rowtype;item jsonb;ids uuid[]:='{}';qty integer;total integer:=0;
 begin
+ if p_revision is null or p_revision<1 then raise exception 'Invalid revision';end if;
  if p_note is null or length(p_note)>1000 or jsonb_typeof(p_items) is distinct from 'array' or jsonb_array_length(p_items) not between 1 and 300 then raise exception 'Invalid items';end if;
  for item in select * from jsonb_array_elements(p_items) loop
  if jsonb_typeof(item->'product_id') is distinct from 'string' or jsonb_typeof(item->'quantity') is distinct from 'number' or (item->>'quantity') !~ '^[0-9]{1,2}$' or (item->>'product_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' or (item ? 'note' and jsonb_typeof(item->'note')<>'string') or length(coalesce(item->>'note',''))>300 then raise exception 'Invalid items';end if;
@@ -128,7 +133,7 @@ begin
  select si.quantity into qty from public.buyer_submission_items si join public.buyer_submissions s on s.id=si.submission_id where s.order_id=p_order and s.revision=target.revision and si.product_id=p_product;
  if qty is null or p_quantity+p_cancelled>qty then raise exception 'Invalid purchase quantity';end if;
  insert into public.buyer_purchases(order_id,product_id) values(p_order,p_product) on conflict do nothing;select * into result from public.buyer_purchases where product_id=p_product;
- if result.version<>p_version then raise exception 'Purchase changed; reload';end if;
+ if p_version is null or result.version<>p_version then raise exception 'Purchase changed; reload';end if;
  update public.buyer_purchases set purchased_quantity=p_quantity,cancelled_quantity=p_cancelled,actual_price_cny=p_cny,actual_exchange_rate=p_rate,actual_cargo=p_cargo,extra_cost=p_extra,problem=p_problem,version=version+1,updated_at=now() where product_id=p_product returning * into result;return result;
 end $$;
 create function public.buyer_record_cash(p_id uuid,p_order uuid,p_kind text,p_amount numeric) returns void language plpgsql security definer set search_path='' as $$
@@ -183,7 +188,7 @@ create function public.buyer_finance_summary() returns jsonb language sql stable
  with chosen as(select si.* from public.buyer_submission_items si join public.buyer_submissions s on s.id=si.submission_id join public.buyer_orders o on o.id=s.order_id where o.owner_id=auth.uid() and o.deleted_at is null and o.revision=s.revision),
  planned as(select case when count(*) filter(where price is null)>0 then null else coalesce(sum(price*quantity),0) end revenue,case when count(*) filter(where cost_price is null)>0 then null else coalesce(sum(cost_price*quantity),0) end spent from chosen),
  cash as(select coalesce(sum(case kind when 'payment' then amount when 'refund' then -amount else 0 end),0) received,coalesce(sum(case kind when 'expense' then amount when 'expense_refund' then -amount else 0 end),0) spent from public.buyer_cash_entries),
- purchases as(select coalesce(sum(actual_price_cny*actual_exchange_rate*purchased_quantity+actual_cargo+extra_cost),0) spent,count(*) filter(where purchased_quantity>0 and (actual_price_cny is null or actual_exchange_rate is null or actual_cargo is null)) unknowns from public.buyer_purchases where purchased_quantity>0),
+ purchases as(select coalesce(sum(round(actual_price_cny*actual_exchange_rate*purchased_quantity+actual_cargo+extra_cost,2)),0) spent,count(*) filter(where purchased_quantity>0 and (actual_price_cny is null or actual_exchange_rate is null or actual_cargo is null)) unknowns from public.buyer_purchases where purchased_quantity>0),
  history as(select coalesce(sum(cash_received),0) received,coalesce(sum(actual_spent),0) spent,coalesce(sum(unknown_costs),0) unknowns from public.buyer_financial_months)
  select jsonb_build_object('planned_revenue',planned.revenue,'planned_cost',planned.spent,'planned_profit',planned.revenue-planned.spent,'cash_received',cash.received+history.received,'actual_spent',case when purchases.unknowns+history.unknowns>0 then null else cash.spent+purchases.spent+history.spent end,'actual_profit',case when purchases.unknowns+history.unknowns>0 or exists(select 1 from chosen c left join public.buyer_purchases p on p.product_id=c.product_id where coalesce(p.purchased_quantity,0)+coalesce(p.cancelled_quantity,0)<c.quantity) then null else cash.received+history.received-cash.spent-purchases.spent-history.spent end) from planned,cash,purchases,history
 $$;
@@ -200,3 +205,26 @@ begin
 end $$;
 revoke all on function public.buyer_gc_ack(uuid,text[],boolean) from public,anon,authenticated;
 grant execute on function public.buyer_gc_ack(uuid,text[],boolean) to service_role;
+
+-- Owner-scoped monthly actual figures combine live rows and anonymous expired-order sums.
+create function public.buyer_finance_monthly() returns table(month date,cash_received numeric,actual_spent numeric,actual_profit numeric)
+language sql stable security invoker set search_path='' as $$
+ with movements as (
+ select m.month,m.cash_received,m.actual_spent,m.unknown_costs from public.buyer_financial_months m
+ union all select date_trunc('month',c.created_at at time zone 'UTC')::date,
+ case c.kind when 'payment' then c.amount when 'refund' then -c.amount else 0 end,
+ case c.kind when 'expense' then c.amount when 'expense_refund' then -c.amount else 0 end,0 from public.buyer_cash_entries c
+ union all select date_trunc('month',p.updated_at at time zone 'UTC')::date,0,
+ coalesce(round(p.actual_price_cny*p.actual_exchange_rate*p.purchased_quantity+p.actual_cargo+p.extra_cost,2),0),
+ case when p.actual_price_cny is null or p.actual_exchange_rate is null or p.actual_cargo is null then 1 else 0 end
+ from public.buyer_purchases p where p.purchased_quantity>0
+ union all select date_trunc('month',s.confirmed_at at time zone 'UTC')::date,0,0,1
+ from public.buyer_submissions s join public.buyer_orders o on o.id=s.order_id and o.revision=s.revision
+ join public.buyer_submission_items si on si.submission_id=s.id left join public.buyer_purchases p on p.product_id=si.product_id
+ where coalesce(p.purchased_quantity,0)+coalesce(p.cancelled_quantity,0)<si.quantity
+ ) select m.month,sum(m.cash_received),case when sum(m.unknown_costs)>0 then null else sum(m.actual_spent) end,
+ case when sum(m.unknown_costs)>0 then null else sum(m.cash_received)-sum(m.actual_spent) end
+ from movements m group by m.month order by m.month desc
+$$;
+revoke all on function public.buyer_finance_monthly() from public,anon;
+grant execute on function public.buyer_finance_monthly() to authenticated;

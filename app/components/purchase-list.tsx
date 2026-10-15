@@ -4,7 +4,11 @@ import Image from 'next/image'
 import type { Purchase, Submission } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
 import { formatSomoni } from '@/lib/pricing'
-import { safeSupplierUrl, parseOptionalPrice } from '@/lib/validation'
+import {
+  safeSupplierUrl,
+  parseOptionalPrice,
+  parseExchangeRate,
+} from '@/lib/validation'
 export function PurchaseList({
   orderId,
   submission,
@@ -134,7 +138,11 @@ function PurchaseRow({
   const lock = useRef(false)
   async function save(quantity = Number(qty)) {
     if (lock.current || disabled) return
-    const numbers = [cny, rate, cargo].map(parseOptionalPrice),
+    const numbers = [
+        parseOptionalPrice(cny),
+        parseExchangeRate(rate),
+        parseOptionalPrice(cargo),
+      ],
       extraNumber = parseOptionalPrice(extra)
     if (
       !Number.isInteger(quantity) ||
@@ -214,6 +222,7 @@ function PurchaseRow({
               Открыть поставщика ↗
             </a>
           )}
+          {p?.problem && <p className="notice mt-2 break-words">{p.problem}</p>}
           <p className="subtitle">
             Куплено {p?.purchased_quantity ?? 0} / {i.quantity}
             {(p?.cancelled_quantity ?? 0) > 0
