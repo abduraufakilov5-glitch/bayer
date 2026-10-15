@@ -228,11 +228,7 @@ export function createHandler(
           ],
           3600,
         )
-      if (
-        imageError ||
-        !images ||
-        images.some((image) => image.error || !image.signedUrl)
-      )
+      if (imageError || !images)
         return json({ error: 'Images unavailable' }, 503)
       const urls = new Map(images.map((image) => [image.path, image.signedUrl]))
       return json({
@@ -241,8 +237,8 @@ export function createHandler(
           id: p.id,
           name: p.name,
           price: p.price,
-          image_url: urls.get(p.thumbnail_path ?? p.image_path),
-          full_image_url: urls.get(p.image_path),
+          image_url: urls.get(p.thumbnail_path ?? p.image_path) ?? '',
+          full_image_url: urls.get(p.image_path) ?? '',
         })),
         receipt,
       })

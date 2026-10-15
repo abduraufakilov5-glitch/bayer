@@ -14,6 +14,9 @@ async function login(page: Page) {
   await page.getByLabel('Пароль', { exact: true }).fill('fixture-password')
   await page.getByRole('button', { name: 'Войти', exact: true }).click()
   await expect(page).toHaveURL(/dashboard/)
+  await expect(
+    page.getByRole('heading', { name: 'Заказы. Всё на месте.', exact: true }),
+  ).toBeVisible()
 }
 async function noOverflow(page: Page) {
   expect(
@@ -53,7 +56,9 @@ test('client quantity, zoom, notes, reload, retry, receipt and plain text XSS', 
   await page.route(
     '**/functions/v1/buyer-public-order',
     async (route) => {
-      await route.fulfill({ status: 503, json: { error: 'temporary' } })
+      const saved = await route.fetch()
+      expect(saved.ok()).toBe(true)
+      await route.abort()
     },
     { times: 1 },
   )
@@ -105,6 +110,7 @@ test('unpriced selection and auth boundaries', async ({ page }) => {
 test('photo draft, cargo, persisted editing after offline reload, add/remove and publication', async ({
   page,
   context,
+  request,
 }) => {
   await login(page)
   await expect(
@@ -128,6 +134,13 @@ test('photo draft, cargo, persisted editing after offline reload, add/remove and
   await expect(page).toHaveURL(/orders\/[0-9a-f-]+$/)
   const id = page.url().split('/').pop()!
   await expect(page.getByLabel('Цена в юанях')).toHaveValue(/40(?:\.00)?/)
+  await expect
+    .poll(() =>
+      page
+        .locator('.product-preview')
+        .evaluate((img: HTMLImageElement) => img.naturalWidth),
+    )
+    .toBeGreaterThan(0)
   // Keep the page reachable but fail Supabase writes, then reload online to recover IndexedDB.
   await page.route('**/rest/v1/rpc/buyer_save_draft', (r) => r.abort())
   await page.getByLabel('Название товара').fill('Сохранено без сети')
@@ -157,9 +170,40 @@ test('photo draft, cargo, persisted editing after offline reload, add/remove and
     page.getByText('Заказ опубликован: состав и цены зафиксированы.'),
   ).toBeVisible()
   await noOverflow(page)
+  const before = (
+    await (
+      await request.get(
+        'http://127.0.0.1:54329/rest/v1/buyer_orders?id=eq.' + id,
+      )
+    ).json()
+  )[0]
   await page.getByRole('button', { name: 'Отозвать ссылку' }).click()
+  expect(
+    (
+      await request.get(
+        'http://127.0.0.1:54329/functions/v1/buyer-public-order?token=' +
+          before.public_token,
+      )
+    ).status(),
+  ).toBe(404)
   await page.getByRole('button', { name: 'Новая ссылка', exact: true }).click()
   await expect(page.locator('p[role=alert]')).toHaveCount(0)
+  const after = (
+    await (
+      await request.get(
+        'http://127.0.0.1:54329/rest/v1/buyer_orders?id=eq.' + id,
+      )
+    ).json()
+  )[0]
+  expect(after.public_token).not.toBe(before.public_token)
+  expect(
+    (
+      await request.get(
+        'http://127.0.0.1:54329/functions/v1/buyer-public-order?token=' +
+          after.public_token,
+      )
+    ).status(),
+  ).toBe(200)
   await page
     .getByRole('button', { name: 'Повторное согласование' })
     .click({ noWaitAfter: true })
@@ -271,5 +315,68 @@ test('300 product public order stays scrollable without horizontal overflow', as
   await expect(page.getByRole('button', { name: /Готово/ })).toContainText(
     '2 шт.',
   )
+  await noOverflow(page)
+})
+
+test('two independent devices cannot confirm twice', async ({
+  browser,
+  request,
+}) => {
+  const a = await browser.newPage(),
+    b = await browser.newPage(),
+    responses: number[] = []
+  try {
+    for (const p of [a, b])
+      p.on('response', (r) => {
+        if (
+          r.request().method() === 'POST' &&
+          r.url().endsWith('buyer-public-order')
+        )
+          responses.push(r.status())
+      })
+    await Promise.all([
+      a.goto('http://127.0.0.1:3100/o/' + token),
+      b.goto('http://127.0.0.1:3100/o/' + token),
+    ])
+    await a.getByLabel('Количество: Шёлковый платок').fill('1')
+    await b.getByLabel('Количество: Шёлковый платок').fill('2')
+    await a.getByRole('button', { name: /Готово/ }).click()
+    await b.getByRole('button', { name: /Готово/ }).click()
+    await Promise.all([
+      a.getByRole('button', { name: 'Подтвердить заказ', exact: true }).click(),
+      b.getByRole('button', { name: 'Подтвердить заказ', exact: true }).click(),
+    ])
+    await expect.poll(() => responses.length).toBe(2)
+    expect(responses.sort()).toEqual([200, 409])
+    const receipt = await (
+      await request.get(
+        'http://127.0.0.1:54329/functions/v1/buyer-public-order?token=' + token,
+      )
+    ).json()
+    expect([1, 2]).toContain(receipt.receipt.total_quantity)
+  } finally {
+    await a.close()
+    await b.close()
+  }
+})
+test('a failed photo upload retains the draft and retries without duplicate order', async ({
+  page,
+}) => {
+  await login(page)
+  await page.goto('/orders/new')
+  await page.getByLabel('Название заказа').fill('Повтор фото')
+  await page.route(
+    '**/storage/v1/object/buyer-product-images/**',
+    (r) => r.abort(),
+    { times: 1 },
+  )
+  await page.getByLabel('Фото товаров').setInputFiles(photo)
+  await expect(page.getByRole('status')).toContainText('Не загрузилось фото', {
+    timeout: 15000,
+  })
+  await expect(page.getByLabel('Название товара')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Создать заказ', exact: true }).click()
+  await expect(page).toHaveURL(/orders\/[0-9a-f-]+$/)
+  await expect(page.getByLabel('Название товара')).toHaveCount(1)
   await noOverflow(page)
 })

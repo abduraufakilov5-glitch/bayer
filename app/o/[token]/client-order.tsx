@@ -1,7 +1,7 @@
 'use client'
 
 import Image from 'next/image'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PublicProduct, PublicReceipt } from '@/lib/types'
 import { formatSomoni as money, roundMoney } from '@/lib/pricing'
 import { MAX_QUANTITY, restoreCart, UUID_PATTERN } from '@/lib/validation'
@@ -28,6 +28,8 @@ export default function ClientOrder({
   readOnly,
 }: Props) {
   const [products, setProducts] = useState(initialProducts)
+  const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({})
+  const imageRefresh = useRef({ busy: false, last: 0 })
   const [note, setNote] = useState('')
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [zoom, setZoom] = useState<string | null>(null)
@@ -127,29 +129,51 @@ export default function ClientOrder({
     if (zoom) zoomRef.current?.showModal()
     else zoomRef.current?.close()
   }, [zoom])
-  useEffect(() => {
-    async function refresh() {
+  const refreshImages = useCallback(
+    async (force = false) => {
+      if (
+        imageRefresh.current.busy ||
+        (!force && Date.now() - imageRefresh.current.last < 30000)
+      )
+        return
+      imageRefresh.current = { busy: true, last: Date.now() }
       try {
         const r = await fetch(
           endpoint + '?token=' + encodeURIComponent(token),
-          { cache: 'no-store' },
+          { cache: 'no-store', signal: AbortSignal.timeout(15000) },
         )
         if (!r.ok) return
         const d = await r.json()
-        if (d.order.revision === revision && d.products?.length)
+        if (d.order.revision === revision && d.products?.length) {
           setProducts(d.products)
-      } catch {}
-    }
-    const timer = setInterval(() => void refresh(), 45 * 60 * 1000)
+          setImageErrors({})
+        }
+        if (
+          d.order.revision === revision &&
+          d.order.status !== 'waiting' &&
+          d.receipt
+        ) {
+          setReceipt(d.receipt)
+          setSent(true)
+        }
+      } catch {
+      } finally {
+        imageRefresh.current.busy = false
+      }
+    },
+    [endpoint, token, revision],
+  )
+  useEffect(() => {
+    const timer = setInterval(() => void refreshImages(), 45 * 60 * 1000)
     const focus = () => {
-      if (document.visibilityState === 'visible') void refresh()
+      if (document.visibilityState === 'visible') void refreshImages()
     }
     window.addEventListener('focus', focus)
     return () => {
       clearInterval(timer)
       window.removeEventListener('focus', focus)
     }
-  }, [endpoint, token, revision])
+  }, [refreshImages])
   const selected = useMemo(
     () => products.filter((p) => (quantities[p.id] ?? 0) > 0),
     [products, quantities],
@@ -310,25 +334,44 @@ export default function ClientOrder({
               <button
                 type="button"
                 aria-label={'Увеличить фото: ' + product.name}
-                onClick={() =>
-                  setZoom(product.full_image_url ?? product.image_url)
-                }
+                onClick={() => {
+                  if (imageErrors[product.id] || !product.image_url)
+                    void refreshImages(true)
+                  else setZoom(product.full_image_url ?? product.image_url)
+                }}
                 className="block w-full aspect-[4/5] overflow-hidden bg-neutral-100"
               >
-                <Image
-                  unoptimized
-                  width={480}
-                  height={600}
-                  src={product.image_url}
-                  alt={product.name}
-                  className="h-full w-full object-cover"
-                  onError={(e) => {
-                    e.currentTarget.alt =
-                      'Фото временно недоступно. Обновите страницу.'
-                  }}
-                />
+                {product.image_url ? (
+                  <Image
+                    unoptimized
+                    width={480}
+                    height={600}
+                    src={product.image_url}
+                    alt={product.name}
+                    className="h-full w-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.alt =
+                        'Фото недоступно. Нажмите, чтобы повторить.'
+                      setImageErrors((errors) => ({
+                        ...errors,
+                        [product.id]: true,
+                      }))
+                      void refreshImages()
+                    }}
+                  />
+                ) : (
+                  <span className="subtitle">Фото недоступно · повторить</span>
+                )}
               </button>
               <div className="p-4">
+                {imageErrors[product.id] && (
+                  <button
+                    className="text-button"
+                    onClick={() => void refreshImages(true)}
+                  >
+                    Повторить фото
+                  </button>
+                )}
                 <h2 className="font-medium">{product.name}</h2>
                 {product.price != null && (
                   <div className="mt-1 text-lg font-semibold">

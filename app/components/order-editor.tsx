@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -11,7 +11,7 @@ import {
   validPricing,
   safeSupplierUrl,
 } from '@/lib/validation'
-import { CARGO_RATES, type CargoMethod } from '@/lib/pricing'
+import { CARGO_RATES, formatSomoni, type CargoMethod } from '@/lib/pricing'
 import { expiresAt } from '@/lib/retention'
 import type { Order, Product } from '@/lib/types'
 import { PricingFields, type PricingDraft } from './pricing-fields'
@@ -26,6 +26,7 @@ type Item = PricingDraft & {
   thumb: Blob | null
   preview: string
   error: string
+  legacyPrice?: number | null
 }
 type Draft = {
   id: string
@@ -51,13 +52,15 @@ export function OrderEditor({
     [busy, setBusy] = useState(false),
     [dirty, setDirty] = useState(false),
     [saveTick, setSaveTick] = useState(0),
+    [imageFailures, setImageFailures] = useState<Record<string, boolean>>({}),
     [defaults, setDefaults] = useState({ workPrice: '0', weightGrams: '80' })
   const current = useRef<Draft | null>(null),
     saving = useRef(false),
     urls = useRef(new Set<string>()),
     generation = useRef(0),
     persistChain = useRef(Promise.resolve()),
-    expires = useRef(0)
+    expires = useRef(0),
+    imageRetry = useRef(new Map<string, number>())
   useEffect(() => {
     let live = true
     async function load() {
@@ -94,6 +97,7 @@ export function OrderEditor({
           thumb: null,
           preview: '',
           error: '',
+          legacyPrice: p.price_cny == null ? p.price : null,
         })),
       }
       if (cached && order && cached.data.version < order.edit_version) {
@@ -186,6 +190,30 @@ export function OrderEditor({
       ),
     })
   }
+  const renewImage = useCallback(async (p: Item, force = false) => {
+    if (
+      !p.imagePath ||
+      (!force && Date.now() - (imageRetry.current.get(p.id) ?? 0) < 30000)
+    )
+      return
+    imageRetry.current.set(p.id, Date.now())
+    const r = await createClient()
+      .storage.from('buyer-product-images')
+      .createSignedUrl(p.thumbnailPath ?? p.imagePath, 3600)
+    if (r.error || !r.data?.signedUrl) {
+      setImageFailures((v) => ({ ...v, [p.id]: true }))
+      return
+    }
+    const next = {
+      ...current.current!,
+      products: current.current!.products.map((i) =>
+        i.id === p.id ? { ...i, preview: r.data.signedUrl } : i,
+      ),
+    }
+    current.current = next
+    setState(next)
+    setImageFailures((v) => ({ ...v, [p.id]: false }))
+  }, [])
   useEffect(() => {
     if (!dirty) return
     const warn = (e: BeforeUnloadEvent) => {
@@ -508,19 +536,33 @@ export function OrderEditor({
             </div>
           </div>
           <div className="product-editor-body">
-            {p.preview ? (
-              <Image
-                unoptimized
-                loading="lazy"
-                width={480}
-                height={600}
-                src={p.preview}
-                alt={p.name}
-                className="product-preview"
-              />
-            ) : (
-              <p role="alert">{p.error || 'Фото недоступно'}</p>
-            )}
+            <div>
+              {p.preview ? (
+                <Image
+                  unoptimized
+                  loading="lazy"
+                  width={480}
+                  height={600}
+                  src={p.preview}
+                  alt={p.name}
+                  onError={() => {
+                    setImageFailures((v) => ({ ...v, [p.id]: true }))
+                    void renewImage(p)
+                  }}
+                  className="product-preview"
+                />
+              ) : (
+                <p role="alert">{p.error || 'Фото недоступно'}</p>
+              )}
+              {p.imagePath && (imageFailures[p.id] || !p.preview) && (
+                <button
+                  className="text-button"
+                  onClick={() => void renewImage(p, true)}
+                >
+                  Повторить фото
+                </button>
+              )}
+            </div>
             <div>
               <label className="field">
                 Название товара
@@ -535,6 +577,12 @@ export function OrderEditor({
                 value={p}
                 onChange={(patch) => update(p.id, patch)}
               />
+              {p.legacyPrice != null && !p.priceCny.trim() && (
+                <p className="subtitle text-xs">
+                  Сохранится прежняя цена {formatSomoni(p.legacyPrice)}. Укажите
+                  закупку для пересчёта.
+                </p>
+              )}
               <label className="field">
                 Ссылка поставщика
                 <input

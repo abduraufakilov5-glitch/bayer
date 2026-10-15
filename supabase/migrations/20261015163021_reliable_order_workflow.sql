@@ -8,6 +8,7 @@ alter table public.buyer_submissions add column revision integer not null defaul
 create unique index buyer_submission_revision on public.buyer_submissions(order_id,revision);
 alter table public.buyer_submission_items add column note text not null default '' check(length(note)<=300), add column image_path text, add column thumbnail_path text, add column supplier_url text, add column price_cny numeric, add column cargo_cost numeric, add column work_price_somoni numeric, add column weight_grams integer;
 update public.buyer_submission_items si set image_path=p.image_path,supplier_url=p.supplier_url,price_cny=p.price_cny,cargo_cost=p.cargo_cost,work_price_somoni=p.work_price_somoni,weight_grams=p.weight_grams from public.buyer_products p where p.id=si.product_id;
+update public.buyer_submission_items set cost_price=null where price_cny is null or cargo_cost is null;
 create table public.buyer_purchases(order_id uuid not null references public.buyer_orders(id) on delete cascade,product_id uuid primary key references public.buyer_products(id) on delete cascade,purchased_quantity integer not null default 0 check(purchased_quantity between 0 and 99),cancelled_quantity integer not null default 0 check(cancelled_quantity between 0 and 99),actual_price_cny numeric check(actual_price_cny between 0 and 1000000),actual_exchange_rate numeric check(actual_exchange_rate>0 and actual_exchange_rate<=10000),actual_cargo numeric check(actual_cargo between 0 and 1000000),extra_cost numeric not null default 0 check(extra_cost between 0 and 1000000),problem text not null default '' check(length(problem)<=300),version integer not null default 0,updated_at timestamptz not null default now());
 create table public.buyer_cash_entries(id uuid primary key,order_id uuid not null references public.buyer_orders(id) on delete cascade,kind text not null check(kind in ('payment','refund','expense','expense_refund')),amount numeric not null check(amount>0 and amount<=100000000),created_at timestamptz not null default now());
 create index on public.buyer_cash_entries(order_id);
@@ -39,10 +40,12 @@ begin
  if new.thumbnail_path is not null then perform pg_advisory_xact_lock(hashtext(new.thumbnail_path));end if;
  if split_part(new.image_path,'/',1)<>target.owner_id::text or (new.thumbnail_path is not null and split_part(new.thumbnail_path,'/',1)<>target.owner_id::text) then raise exception 'Invalid image owner';end if;
  if exists(select 1 from public.buyer_image_gc where path in(new.image_path,new.thumbnail_path)) and (tg_op='INSERT' or (new.image_path,new.thumbnail_path) is distinct from (old.image_path,old.thumbnail_path)) then raise exception 'Image is being deleted; upload again';end if;
+ if length(trim(new.name)) not between 1 and 200 or new.price_cny>1000000 or new.work_price_somoni>1000000 then raise exception 'Invalid pricing';end if;
  if new.supplier_url is not null and (length(new.supplier_url)>2048 or new.supplier_url !~ '^https?://') then raise exception 'Invalid supplier URL';end if;
+ new.cargo_cost:=round(new.weight_grams::numeric/1000*target.cargo_rate,2);
  if new.price_cny is not null then
- new.cargo_cost:=round(new.weight_grams::numeric/1000*target.cargo_rate,2);new.price:=round(new.price_cny*target.exchange_rate+new.cargo_cost+new.work_price_somoni,2);
- elsif tg_op='INSERT' then new.price:=null;end if;
+ new.price:=round(new.price_cny*target.exchange_rate+new.cargo_cost+new.work_price_somoni,2);
+ elsif tg_op='INSERT' or old.price_cny is not null then new.price:=null;else new.price:=old.price;end if;
  return new;
 end $$;
 create or replace function public.guard_buyer_order() returns trigger language plpgsql set search_path='' as $$
@@ -56,6 +59,7 @@ begin
  if (new.cargo_method,new.cargo_rate,new.exchange_rate) is distinct from (old.cargo_method,old.cargo_rate,old.exchange_rate) then raise exception 'Use atomic draft editor';end if;
  if new.confirmed_at is distinct from old.confirmed_at then raise exception 'A client submission is required';end if;
  if new.status<>old.status then
+ if old.deleted_at is not null or new.deleted_at is not null or old.created_at<=now()-interval '25 days' then raise exception 'Order unavailable';end if;
  if old.status='draft' and new.status='waiting' then
  if not exists(select 1 from public.buyer_products where order_id=old.id) then raise exception 'Add products before publishing';end if;
  elsif (old.status='received' and new.status='ordered') or (old.status='ordered' and new.status='completed') then
@@ -63,7 +67,7 @@ begin
  else raise exception 'Invalid status transition';end if;end if;return new;
 end $$;
 create function public.buyer_save_draft(p_id uuid,p_title text,p_cargo text,p_version integer,p_products jsonb) returns public.buyer_orders language plpgsql security definer set search_path='' as $$
-declare target public.buyer_orders%rowtype;item jsonb;ids uuid[]:='{}';
+declare target public.buyer_orders%rowtype;item jsonb;ids uuid[]:='{}'; image_key text;
 begin
  if auth.uid() is null then raise exception 'Unauthorized';end if;
  if p_version is null or p_version<0 then raise exception 'Invalid version';end if;
@@ -75,6 +79,7 @@ begin
  if target.edit_version=p_version+1 and target.draft_hash=md5(p_title||p_cargo||p_products::text) then return target;end if;
  if target.edit_version<>p_version then raise exception 'Draft changed in another tab; reload before saving';end if;
  update public.buyer_orders set title=trim(p_title),cargo_method=p_cargo,cargo_rate=case when p_cargo='air' then 60 else 30 end,edit_version=edit_version+1,draft_hash=md5(p_title||p_cargo||p_products::text) where id=p_id;
+ for image_key in select distinct path from jsonb_array_elements(p_products) i cross join lateral unnest(array[i->>'image_path',i->>'thumbnail_path']) path where path is not null order by path loop perform pg_advisory_xact_lock(hashtext(image_key));end loop;
  for item in select * from jsonb_array_elements(p_products) loop
  if (item->>'id')::uuid=any(ids) then raise exception 'Duplicate product';end if;ids:=array_append(ids,(item->>'id')::uuid);
  if exists(select 1 from public.buyer_products where id=(item->>'id')::uuid and order_id<>p_id) then raise exception 'Invalid product';end if;
@@ -145,12 +150,16 @@ end $$;
 alter table public.buyer_products drop column catalog_product_id;
 drop table public.buyer_catalog_products;
 create function public.buyer_queue_product_images() returns trigger language plpgsql security definer set search_path='' as $$
+declare image_key text;
 begin
+ for image_key in select distinct x from unnest(array[old.image_path,old.thumbnail_path]) x where x is not null order by x loop perform pg_advisory_xact_lock(hashtext(image_key));end loop;
  insert into public.buyer_image_gc(path) select x from unnest(array[old.image_path,old.thumbnail_path]) x where x is not null and (tg_op='DELETE' or x not in(new.image_path,coalesce(new.thumbnail_path,''))) on conflict do nothing;return old;
 end $$;
 create trigger buyer_queue_product_images after delete or update of image_path,thumbnail_path on public.buyer_products for each row execute function public.buyer_queue_product_images();
 create function public.buyer_archive_finance() returns trigger language plpgsql security definer set search_path='' as $$
+declare image_key text;
 begin
+ for image_key in select distinct path from (select p.image_path path from public.buyer_products p where p.order_id=old.id union select p.thumbnail_path from public.buyer_products p where p.order_id=old.id union select si.image_path from public.buyer_submission_items si join public.buyer_submissions s on s.id=si.submission_id where s.order_id=old.id union select si.thumbnail_path from public.buyer_submission_items si join public.buyer_submissions s on s.id=si.submission_id where s.order_id=old.id) paths where path is not null order by path loop perform pg_advisory_xact_lock(hashtext(image_key));end loop;
  insert into public.buyer_financial_months(owner_id,month,cash_received,actual_spent,unknown_costs)
  select old.owner_id,m,sum(cash),sum(cost),sum(unknowns)::int from (
  select date_trunc('month',created_at at time zone 'UTC')::date m,case kind when 'payment' then amount when 'refund' then -amount else 0 end cash,case kind when 'expense' then amount when 'expense_refund' then -amount else 0 end cost,0 unknowns from public.buyer_cash_entries where order_id=old.id
@@ -228,3 +237,12 @@ language sql stable security invoker set search_path='' as $$
 $$;
 revoke all on function public.buyer_finance_monthly() from public,anon;
 grant execute on function public.buyer_finance_monthly() to authenticated;
+
+-- Lookup indexes also bound the cost of daily cleanup and shared-file checks.
+create index buyer_orders_expiry_idx on public.buyer_orders(created_at);
+create index buyer_purchases_order_idx on public.buyer_purchases(order_id);
+create index buyer_products_image_idx on public.buyer_products(image_path);
+create index buyer_products_thumbnail_idx on public.buyer_products(thumbnail_path) where thumbnail_path is not null;
+create index buyer_submission_image_idx on public.buyer_submission_items(image_path) where image_path is not null;
+create index buyer_submission_thumbnail_idx on public.buyer_submission_items(thumbnail_path) where thumbnail_path is not null;
+create index buyer_image_gc_retry_idx on public.buyer_image_gc(retry_at,queued_at);

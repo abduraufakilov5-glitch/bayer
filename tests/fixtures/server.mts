@@ -199,7 +199,31 @@ createServer(async (req, res) => {
       const path = decodeURIComponent(
         url.pathname.slice('/storage/v1/object/buyer-product-images/'.length),
       )
-      files.set(path, bytes)
+      if (files.has(path) && req.headers['x-upsert'] !== 'true') {
+        res.writeHead(409)
+        res.end(
+          JSON.stringify({
+            statusCode: '409',
+            error: 'Duplicate',
+            message: 'The resource already exists',
+          }),
+        )
+        return
+      }
+      let image = bytes
+      if (req.headers['content-type']?.includes('multipart/form-data')) {
+        const form = await new Request('http://127.0.0.1/upload', {
+          method: 'POST',
+          headers: { 'content-type': req.headers['content-type'] },
+          body: bytes,
+        }).formData()
+        for (const value of form.values())
+          if (value instanceof File) {
+            image = Buffer.from(await value.arrayBuffer())
+            break
+          }
+      }
+      files.set(path, image)
       await serial(() =>
         db.query(
           "insert into storage.objects(bucket_id,name) values('buyer-product-images',$1) on conflict do nothing",

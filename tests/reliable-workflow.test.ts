@@ -75,6 +75,19 @@ test('cargo, notes, revisions, procurement, cash, retention and safe storage que
           '70.80',
         )
         await assert.rejects(save('auto', 0), /another tab/)
+        await db.exec('begin')
+        await save('air', 2, [
+          { ...item, price_cny: null } as unknown as typeof item,
+        ])
+        assert.equal(
+          (
+            await db.query<{ price: null }>(
+              'select price from public.buyer_products',
+            )
+          ).rows[0].price,
+          null,
+        )
+        await db.exec('rollback')
         await assert.rejects(
           db.query(
             "update public.buyer_orders set created_at=now()-interval '30 days' where id=$1",
@@ -360,7 +373,12 @@ test('cargo, notes, revisions, procurement, cash, retention and safe storage que
           )
         ).rows[0].f
         assert.equal(f.actual_profit, 74.4)
-      const monthly=(await db.query<{actual_profit:string}>('select * from public.buyer_finance_monthly()')).rows;assert.equal(Number(monthly[0].actual_profit),74.4)
+        const monthly = (
+          await db.query<{ actual_profit: string }>(
+            'select * from public.buyer_finance_monthly()',
+          )
+        ).rows
+        assert.equal(Number(monthly[0].actual_profit), 74.4)
       },
     )
   } finally {

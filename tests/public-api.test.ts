@@ -8,7 +8,12 @@ const productId = '22222222-2222-4222-8222-222222222222'
 const owner = '33333333-3333-4333-8333-333333333333'
 const payload = { token, items: [{ product_id: productId, quantity: 2 }] }
 function setup(
-  options: { status?: string; rpcError?: string; imagePath?: string } = {},
+  options: {
+    status?: string
+    rpcError?: string
+    imagePath?: string
+    imageMissing?: boolean
+  } = {},
 ) {
   const calls: string[] = []
   const client = createClient('https://fixture.example', 'fixture-only', {
@@ -56,6 +61,10 @@ function setup(
               price: 56.4,
               image_path: options.imagePath ?? owner + '/photo.jpg',
             },
+          ])
+        if (url.includes('/storage/') && options.imageMissing)
+          return Response.json([
+            { path: owner + '/photo.jpg', error: 'Missing image' },
           ])
         if (url.includes('/storage/'))
           return Response.json([
@@ -160,4 +169,14 @@ test('public API returns receipts, meaningful conflicts and hides database error
   }).handler(post(payload))
   assert.equal(response.status, 503)
   assert.ok(!(await response.text()).includes('private database'))
+})
+
+test('a missing image does not hide the rest of a public order', async () => {
+  const response = await setup({ imageMissing: true }).handler(
+    new Request('https://fixture.example?token=' + token),
+  )
+  assert.equal(response.status, 200)
+  const data = await response.json()
+  assert.equal(data.products[0].image_url, '')
+  assert.equal(data.products[0].price, 56.4)
 })
