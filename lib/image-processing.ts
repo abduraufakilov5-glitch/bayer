@@ -4,24 +4,33 @@ export async function prepareImage(
   file: Blob,
 ): Promise<{ image: Blob; thumbnail: Blob }> {
   if (file.size > 20 * 1024 * 1024) throw new Error('Фото больше 20 МБ.')
-  let source = file
-  if (
+  const heic =
     /hei[cf]/i.test(file.type) ||
     ('name' in file && /\.hei[cf]$/i.test(String(file.name)))
-  ) {
-    const { default: convert } = await import('heic2any')
-    const converted = await convert({
-      blob: file,
-      toType: 'image/jpeg',
-      quality: 0.92,
-    })
-    source = Array.isArray(converted) ? converted[0] : converted
-  }
-  const url = URL.createObjectURL(source),
-    img = new window.Image()
+  const img = new window.Image()
+  let url = URL.createObjectURL(file)
   try {
     img.src = url
-    await img.decode()
+    try {
+      await img.decode()
+    } catch {
+      if (!heic) throw new Error('Повреждённое фото.')
+      // Safari can decode HEIC natively; other browsers load the converter only on demand.
+      const { default: convert } = await import('heic2any'),
+        converted = await convert({
+          blob: file,
+          toType: 'image/jpeg',
+          quality: 0.92,
+        })
+      URL.revokeObjectURL(url)
+      url = URL.createObjectURL(
+        Array.isArray(converted) ? converted[0] : converted,
+      )
+      img.src = url
+      await img.decode()
+    }
+    if (img.naturalWidth * img.naturalHeight > 60_000_000)
+      throw new Error('Слишком большое разрешение фото.')
     async function resize(max: number, quality: number) {
       const scale = Math.min(
           1,

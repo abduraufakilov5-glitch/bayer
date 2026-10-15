@@ -44,7 +44,7 @@ export async function runMaintenance(
       const pending = await client
         .from('buyer_submissions')
         .select(
-          'id,order_id,total_quantity,confirmed_at,buyer_orders!inner(order_number)',
+          'id,order_id,total_quantity,confirmed_at,buyer_orders!inner(order_number),buyer_submission_items(id)',
         )
         .is('telegram_notified_at', null)
         .order('confirmed_at')
@@ -58,6 +58,7 @@ export async function runMaintenance(
           order_id: row.order_id,
           order_number: o.order_number,
           total_quantity: row.total_quantity,
+          item_count: row.buyer_submission_items?.length,
           confirmed_at: row.confirmed_at,
         })
       }

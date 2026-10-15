@@ -118,7 +118,14 @@ export function OrderEditor({
             ? URL.createObjectURL(p.thumb ?? p.blob)
             : (images.get(p.thumbnailPath ?? p.imagePath ?? '') ?? '')
           if (p.blob) urls.current.add(preview)
-          return { ...p, preview }
+          return {
+            ...p,
+            preview,
+            error:
+              p.error === 'Обработка фото…'
+                ? 'Обработка прервалась. Повторите.'
+                : p.error,
+          }
         }),
       }
       if (!live) return
@@ -277,21 +284,22 @@ export function OrderEditor({
           weight_grams: number
           supplier_url: string | null
           image_path: string
-          thumbnail_path: string
+          thumbnail_path: string | null
         }[] = []
       for (const p of snapshot.products) {
         setMessage(
           `Сохраняем фото ${items.length + 1} / ${snapshot.products.length}…`,
         )
         const path = p.imagePath ?? `${owner}/${snapshot.id}/${p.id}.jpg`,
-          thumbnail =
-            p.thumbnailPath ?? `${owner}/${snapshot.id}/${p.id}-thumb.jpg`
+          thumbnail = p.imagePath
+            ? (p.thumbnailPath ?? null)
+            : `${owner}/${snapshot.id}/${p.id}-thumb.jpg`
         if (!p.imagePath) {
           if (!p.blob || !p.thumb)
             throw new Error('Повторите обработку фото ' + p.name)
           for (const [key, blob] of [
             [path, p.blob],
-            [thumbnail, p.thumb],
+            [thumbnail!, p.thumb],
           ] as const) {
             const r = await client.storage
               .from('buyer-product-images')
@@ -537,7 +545,7 @@ export function OrderEditor({
                   }
                 />
               </label>
-              {p.error && (
+              {p.error && p.error !== 'Обработка фото…' && (
                 <button
                   className="btn btn-secondary"
                   onClick={async () => {

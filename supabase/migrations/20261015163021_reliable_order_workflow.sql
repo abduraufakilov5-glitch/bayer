@@ -103,7 +103,7 @@ begin
 end $$;
 drop function public.submit_buyer_order(uuid,jsonb);
 create function public.submit_buyer_order(p_token uuid,p_items jsonb,p_note text default '',p_revision integer default 1,p_request_id uuid default null)
-returns table(submission_id uuid,order_id uuid,order_number bigint,total_quantity integer,confirmed_at timestamptz) language plpgsql security definer set search_path='' as $$
+returns table(submission_id uuid,order_id uuid,order_number bigint,total_quantity integer,confirmed_at timestamptz,item_count integer) language plpgsql security definer set search_path='' as $$
 declare target public.buyer_orders%rowtype;receipt public.buyer_submissions%rowtype;item jsonb;ids uuid[]:='{}';qty integer;total integer:=0;
 begin
  if p_revision is null or p_revision<1 then raise exception 'Invalid revision';end if;
@@ -116,14 +116,14 @@ begin
  if p_revision<>target.revision then raise exception 'Order changed; reload';end if;
  select * into receipt from public.buyer_submissions s where s.order_id=target.id and s.revision=target.revision;
  if found then
- if receipt.note=p_note and receipt.request_id is not distinct from p_request_id and (select count(*) from public.buyer_submission_items existing where existing.submission_id=receipt.id)=cardinality(ids) and not exists(select 1 from jsonb_array_elements(p_items) i where not exists(select 1 from public.buyer_submission_items si where si.submission_id=receipt.id and si.product_id=(i->>'product_id')::uuid and si.quantity=(i->>'quantity')::int and si.note=coalesce(i->>'note',''))) then return query select receipt.id,target.id,target.order_number,receipt.total_quantity,receipt.confirmed_at;return;end if;raise exception 'Order already submitted';end if;
+ if receipt.note=p_note and receipt.request_id is not distinct from p_request_id and (select count(*) from public.buyer_submission_items existing where existing.submission_id=receipt.id)=cardinality(ids) and not exists(select 1 from jsonb_array_elements(p_items) i where not exists(select 1 from public.buyer_submission_items si where si.submission_id=receipt.id and si.product_id=(i->>'product_id')::uuid and si.quantity=(i->>'quantity')::int and si.note=coalesce(i->>'note',''))) then return query select receipt.id,target.id,target.order_number,receipt.total_quantity,receipt.confirmed_at,cardinality(ids);return;end if;raise exception 'Order already submitted';end if;
  if target.status<>'waiting' then raise exception 'Order is not available';end if;
  if (select count(*) from public.buyer_products p where p.order_id=target.id and p.id=any(ids))<>cardinality(ids) then raise exception 'Invalid items';end if;
  if exists(select 1 from public.buyer_purchases p where p.order_id=target.id and p.purchased_quantity+p.cancelled_quantity>coalesce((select (i->>'quantity')::int from jsonb_array_elements(p_items) i where (i->>'product_id')::uuid=p.product_id),0)) then raise exception 'Selection below purchased quantity';end if;
  insert into public.buyer_submissions(order_id,total_quantity,revision,note,request_id,cargo_rate,exchange_rate) values(target.id,total,target.revision,p_note,p_request_id,target.cargo_rate,target.exchange_rate) returning * into receipt;
  insert into public.buyer_submission_items(submission_id,product_id,product_name,price,quantity,note,image_path,thumbnail_path,supplier_url,price_cny,cargo_cost,work_price_somoni,weight_grams,cost_price,buyer_earnings)
  select receipt.id,p.id,p.name,p.price,(i->>'quantity')::int,coalesce(i->>'note',''),p.image_path,p.thumbnail_path,p.supplier_url,p.price_cny,p.cargo_cost,p.work_price_somoni,p.weight_grams,case when p.price_cny is null or p.cargo_cost is null then null else round(p.price_cny*target.exchange_rate+p.cargo_cost,2) end,p.work_price_somoni from jsonb_array_elements(p_items) i join public.buyer_products p on p.id=(i->>'product_id')::uuid;
- update public.buyer_orders set status='received',confirmed_at=receipt.confirmed_at where id=target.id;return query select receipt.id,target.id,target.order_number,receipt.total_quantity,receipt.confirmed_at;
+ update public.buyer_orders set status='received',confirmed_at=receipt.confirmed_at where id=target.id;return query select receipt.id,target.id,target.order_number,receipt.total_quantity,receipt.confirmed_at,cardinality(ids);
 end $$;
 create function public.buyer_save_purchase(p_order uuid,p_product uuid,p_version integer,p_quantity integer,p_cancelled integer,p_cny numeric,p_rate numeric,p_cargo numeric,p_extra numeric,p_problem text) returns public.buyer_purchases language plpgsql security definer set search_path='' as $$
 declare target public.buyer_orders%rowtype;result public.buyer_purchases%rowtype;qty integer;

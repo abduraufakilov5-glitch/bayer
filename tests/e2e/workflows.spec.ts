@@ -75,6 +75,10 @@ test('client quantity, zoom, notes, reload, retry, receipt and plain text XSS', 
     page.getByText('Именно эти цвета', { exact: true }),
   ).toBeVisible()
   await noOverflow(page)
+  await page.screenshot({
+    path: `output/playwright/${test.info().project.name}-receipt.png`,
+    fullPage: true,
+  })
   expect(errors).toEqual([])
 })
 test('unpriced selection and auth boundaries', async ({ page }) => {
@@ -205,6 +209,9 @@ test('admin purchase, payment, reapproval, history, theme and long names', async
     .getByLabel('Название товара')
     .first()
     .fill('Очень длинное название '.repeat(8))
+  await expect(page.getByRole('status')).toHaveText('Сохранено', {
+    timeout: 20000,
+  })
   await page.getByRole('button', { name: 'Переключить тему' }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   await noOverflow(page)

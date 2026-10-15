@@ -360,6 +360,7 @@ test('cargo, notes, revisions, procurement, cash, retention and safe storage que
           )
         ).rows[0].f
         assert.equal(f.actual_profit, 74.4)
+      const monthly=(await db.query<{actual_profit:string}>('select * from public.buyer_finance_monthly()')).rows;assert.equal(Number(monthly[0].actual_profit),74.4)
       },
     )
   } finally {

@@ -6,12 +6,13 @@ export type LocalDraft<T> = {
   expiresAt: number
   data: T
 }
-type StoredBlob = { __bayerBlob: 1; type: string; bytes: ArrayBuffer }
+type StoredBlob = { __bayerBlob: 1; type: string; name?:string; bytes: ArrayBuffer }
 async function encode(value: unknown): Promise<unknown> {
   if (value instanceof Blob)
     return {
       __bayerBlob: 1,
       type: value.type,
+      ...('name' in value ? { name: String(value.name) } : {}),
       bytes: await value.arrayBuffer(),
     } satisfies StoredBlob
   if (Array.isArray(value)) {
@@ -33,7 +34,9 @@ function decode(value: unknown): unknown {
   if (value && typeof value === 'object') {
     const blob = value as StoredBlob
     if (blob.__bayerBlob === 1 && blob.bytes instanceof ArrayBuffer)
-      return new Blob([blob.bytes], { type: blob.type })
+      return blob.name
+        ? new File([blob.bytes], blob.name, { type: blob.type })
+        : new Blob([blob.bytes], { type: blob.type })
     return Object.fromEntries(
       Object.entries(value).map(([key, item]) => [key, decode(item)]),
     )
