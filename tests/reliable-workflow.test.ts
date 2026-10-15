@@ -194,6 +194,16 @@ test('cargo, notes, revisions, procurement, cash, retention and safe storage que
           )
         ).rows[0].f
         assert.equal(f.actual_profit, 74.4)
+        assert.equal(
+          Number(
+            (
+              await db.query<{ v: string }>(
+                "select (public.buyer_finance_summary()->>'planned_revenue')::numeric v",
+              )
+            ).rows[0].v,
+          ),
+          141.6,
+        )
         await assert.rejects(
           db.query(
             "select public.buyer_save_purchase($1,$2,1,3,0,40,1.3,9.6,2,'')",
@@ -228,7 +238,12 @@ test('cargo, notes, revisions, procurement, cash, retention and safe storage que
         )
         await db.query(
           "select * from public.submit_buyer_order($1,$2,'',2,null)",
-          [token, payload],
+          [
+            token,
+            JSON.stringify([
+              { product_id: product, quantity: 2, note: 'Исправлено' },
+            ]),
+          ],
         )
         assert.equal(
           (await db.query('select * from public.buyer_submissions')).rows
@@ -236,6 +251,23 @@ test('cargo, notes, revisions, procurement, cash, retention and safe storage que
           2,
         )
         await db.exec('set role authenticated')
+        const retained = (
+          await db.query<{
+            purchased_quantity: number
+            cancelled_quantity: number
+          }>('select * from public.buyer_purchases')
+        ).rows[0]
+        assert.equal(retained.purchased_quantity, 2)
+        assert.equal(retained.cancelled_quantity, 0)
+        const snapshots = (
+          await db.query<{ revision: number; quantity: number }>(
+            'select s.revision,si.quantity from public.buyer_submissions s join public.buyer_submission_items si on si.submission_id=s.id order by s.revision',
+          )
+        ).rows
+        assert.deepEqual(snapshots, [
+          { revision: 1, quantity: 3 },
+          { revision: 2, quantity: 2 },
+        ])
         assert.equal(
           (await db.query('select * from public.buyer_purchases')).rows.length,
           1,
