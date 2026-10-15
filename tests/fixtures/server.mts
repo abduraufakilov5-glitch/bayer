@@ -262,7 +262,8 @@ createServer(async (req, res) => {
                   : body[k],
               ),
             )
-            return name === 'submit_buyer_order'
+            return name === 'submit_buyer_order' ||
+              name === 'buyer_finance_monthly'
               ? result.rows.map((r) => r.result)
               : result.rows[0].result
           }

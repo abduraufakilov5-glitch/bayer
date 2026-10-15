@@ -162,6 +162,22 @@ test('cargo, notes, revisions, procurement, cash, retention and safe storage que
           )
         ).rows[0].f
         assert.equal(f.actual_profit, null)
+        await db.exec('begin')
+        await db.query(
+          "select public.buyer_save_purchase($1,$2,1,0,3,null,null,10,5,'Отмена с расходами')",
+          [order, product],
+        )
+        assert.equal(
+          Number(
+            (
+              await db.query<{ v: string }>(
+                "select (public.buyer_finance_summary()->>'actual_spent')::numeric v",
+              )
+            ).rows[0].v,
+          ),
+          15,
+        )
+        await db.exec('rollback')
         await assert.rejects(
           db.query(
             "update public.buyer_orders set status='ordered' where id=$1",

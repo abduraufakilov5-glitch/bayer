@@ -228,6 +228,9 @@ test('admin purchase, payment, reapproval, history, theme and long names', async
   await customer.close()
   await login(page)
   await expect(page.getByText('Получено', { exact: true })).toBeVisible()
+  await expect(
+    page.getByText('Финансы по месяцам', { exact: true }),
+  ).toBeVisible()
   await page
     .getByRole('heading', { name: 'Осенняя закупка', exact: true })
     .click()
@@ -378,5 +381,63 @@ test('a failed photo upload retains the draft and retries without duplicate orde
   await page.getByRole('button', { name: 'Создать заказ', exact: true }).click()
   await expect(page).toHaveURL(/orders\/[0-9a-f-]+$/)
   await expect(page.getByLabel('Название товара')).toHaveCount(1)
+  await noOverflow(page)
+})
+
+test('conflicting draft writes preserve local input and allow explicit server reload', async ({
+  page,
+  request,
+}) => {
+  await login(page)
+  await page.goto('/orders/new')
+  await page.getByLabel('Название заказа').fill('Конфликт')
+  await page.getByLabel('Фото товаров').setInputFiles(photo)
+  await expect(page.getByRole('status')).toHaveText('Сохранено', {
+    timeout: 15000,
+  })
+  await page.getByRole('button', { name: 'Создать заказ', exact: true }).click()
+  await expect(page).toHaveURL(/orders\/[0-9a-f-]+$/)
+  const id = page.url().split('/').pop()!,
+    o = (
+      await (
+        await request.get(
+          'http://127.0.0.1:54329/rest/v1/buyer_orders?id=eq.' + id,
+        )
+      ).json()
+    )[0],
+    products = await (
+      await request.get(
+        'http://127.0.0.1:54329/rest/v1/buyer_products?order_id=eq.' + id,
+      )
+    ).json()
+  const external = await request.post(
+    'http://127.0.0.1:54329/rest/v1/rpc/buyer_save_draft',
+    {
+      data: {
+        p_id: id,
+        p_title: 'Другая вкладка',
+        p_cargo: 'auto',
+        p_version: o.edit_version,
+        p_products: products.map((p: Record<string, unknown>) => ({
+          ...p,
+          price_cny: p.price_cny == null ? null : Number(p.price_cny),
+          work_price_somoni: Number(p.work_price_somoni),
+          weight_grams: Number(p.weight_grams),
+        })),
+      },
+    },
+  )
+  expect(external.ok()).toBe(true)
+  await page.getByLabel('Название товара').fill('Локальные правки')
+  await expect(page.getByRole('status')).toContainText('другой вкладке', {
+    timeout: 15000,
+  })
+  await expect(page.getByLabel('Название товара')).toHaveValue(
+    'Локальные правки',
+  )
+  page.once('dialog', (d) => d.accept())
+  await page.getByRole('button', { name: 'Загрузить серверную версию' }).click()
+  await expect(page.getByLabel('Название заказа')).toHaveValue('Другая вкладка')
+  await expect(page.getByLabel('Название товара')).toHaveValue('Платок')
   await noOverflow(page)
 })

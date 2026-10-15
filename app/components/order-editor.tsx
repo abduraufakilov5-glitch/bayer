@@ -51,6 +51,7 @@ export function OrderEditor({
     [message, setMessage] = useState(''),
     [busy, setBusy] = useState(false),
     [dirty, setDirty] = useState(false),
+    [conflict, setConflict] = useState(false),
     [saveTick, setSaveTick] = useState(0),
     [imageFailures, setImageFailures] = useState<Record<string, boolean>>({}),
     [defaults, setDefaults] = useState({ workPrice: '0', weightGrams: '80' })
@@ -101,6 +102,7 @@ export function OrderEditor({
         })),
       }
       if (cached && order && cached.data.version < order.edit_version) {
+        setConflict(true)
         draft = { ...draft, version: cached.data.version }
         setMessage(
           'Есть локальные изменения. Если другая вкладка уже сохранила заказ, сначала обновите данные.',
@@ -223,6 +225,89 @@ export function OrderEditor({
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirty])
+  async function loadServerVersion() {
+    if (
+      busy ||
+      !current.current ||
+      !confirm(
+        'Заменить локальную копию серверной версией? Несохранённые правки на этом устройстве будут отброшены. Сначала сверьте или скопируйте нужные значения.',
+      )
+    )
+      return
+    setBusy(true)
+    try {
+      const client = createClient(),
+        id = current.current.id,
+        [o, p] = await Promise.all([
+          client.from('buyer_orders').select('*').eq('id', id).single(),
+          client
+            .from('buyer_products')
+            .select('*')
+            .eq('order_id', id)
+            .order('sort_order'),
+        ])
+      if (o.error || p.error || o.data.status !== 'draft')
+        throw new Error(
+          'Заказ больше не является черновиком. Обновите страницу.',
+        )
+      const signed = await client.storage
+        .from('buyer-product-images')
+        .createSignedUrls(
+          (p.data as Product[]).map((p) => p.thumbnail_path ?? p.image_path),
+          3600,
+        )
+      const images = new Map(signed.data?.map((i) => [i.path, i.signedUrl]))
+      const fresh: Draft = {
+        id,
+        title: o.data.title,
+        cargo: o.data.cargo_method,
+        version: o.data.edit_version,
+        created: o.data.created_at,
+        products: (p.data as Product[]).map((p) => ({
+          id: p.id,
+          name: p.name,
+          priceCny: p.price_cny == null ? '' : String(p.price_cny),
+          workPrice: String(p.work_price_somoni ?? 0),
+          weightGrams: String(p.weight_grams ?? 80),
+          supplierUrl: p.supplier_url ?? '',
+          imagePath: p.image_path,
+          thumbnailPath: p.thumbnail_path,
+          blob: null,
+          thumb: null,
+          preview: images.get(p.thumbnail_path ?? p.image_path) ?? '',
+          error: '',
+          legacyPrice: p.price_cny == null ? p.price : null,
+        })),
+      }
+      await persistChain.current.catch(() => {})
+      await writeDraft({
+        id,
+        owner,
+        updatedAt: Date.now(),
+        expiresAt: expiresAt(fresh.created),
+        data: {
+          ...fresh,
+          products: fresh.products.map((p) => ({ ...p, preview: '' })),
+        },
+      })
+      generation.current++
+      current.current = fresh
+      setState(fresh)
+      setDirty(false)
+      setConflict(false)
+      setMessage('Загружена серверная версия')
+      urls.current.forEach((url) => URL.revokeObjectURL(url))
+      urls.current.clear()
+    } catch (e) {
+      setMessage(
+        e instanceof Error
+          ? e.message
+          : 'Не удалось загрузить серверную версию. Локальная копия сохранена.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
   async function add(files: FileList | null) {
     if (!files || !current.current) return
     if (
@@ -360,6 +445,7 @@ export function OrderEditor({
         p_version: snapshot.version,
         p_products: items,
       })
+      if (error?.message.includes('another tab')) setConflict(true)
       if (error)
         throw new Error(
           error.message.includes('another tab')
@@ -636,6 +722,15 @@ export function OrderEditor({
           }}
         />
       </label>
+      {conflict && (
+        <button
+          className="btn btn-secondary"
+          disabled={busy}
+          onClick={() => void loadServerVersion()}
+        >
+          Загрузить серверную версию
+        </button>
+      )}
       <p role="status" className="subtitle">
         {message || 'Изменения сохраняются автоматически'}
       </p>
