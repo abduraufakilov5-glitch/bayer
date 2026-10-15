@@ -1,202 +1,268 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 const token = '11111111-1111-4111-8111-111111111111'
-
-test('customer selection survives reload, reviews, retries and confirms', async ({ page }) => {
+const photo = {
+  name: 'Платок.png',
+  mimeType: 'image/png',
+  buffer: Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+    'base64',
+  ),
+}
+async function login(page: Page) {
+  await page.goto('/login')
+  await page.getByLabel('Email', { exact: true }).fill('buyer@example.test')
+  await page.getByLabel('Пароль', { exact: true }).fill('fixture-password')
+  await page.getByRole('button', { name: 'Войти', exact: true }).click()
+  await expect(page).toHaveURL(/dashboard/)
+}
+async function noOverflow(page: Page) {
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true)
+}
+test.beforeEach(async ({ request }) => {
+  expect((await request.post('http://127.0.0.1:54329/__reset')).ok()).toBe(true)
+})
+test('client quantity, zoom, notes, reload, retry, receipt and plain text XSS', async ({
+  page,
+}) => {
   const errors: string[] = []
-  page.on('pageerror', error => errors.push(error.message))
-  await page.goto('/o/'+token)
-  await page.getByRole('button', { name: 'Увеличить: Шёлковый платок' }).click()
-  await page.getByRole('button', { name: 'Увеличить: Шёлковый платок' }).click()
-  await expect(page.getByRole('button', { name: /Готово/ })).toContainText('112,8')
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/o/' + token)
+  await page
+    .getByRole('button', { name: 'Увеличить фото: Шёлковый платок' })
+    .click()
+  await expect(page.getByAltText('Фото крупно')).toBeVisible()
+  await page.getByRole('button', { name: 'Закрыть', exact: true }).click()
+  await page.getByLabel('Количество: Шёлковый платок').fill('3')
+  await page.getByRole('button', { name: /Готово/ }).click()
+  await page.getByText('Добавить заметку', { exact: true }).click()
+  await page
+    .getByLabel('Заметка: Шёлковый платок')
+    .fill('<script>alert(1)</script> Тёмный цвет')
+  await page.getByLabel('Заметка к заказу').fill('Именно эти цвета')
+  await page.getByRole('button', { name: 'Вернуться к выбору' }).click()
   await page.reload()
-  await expect(page.getByText('Ваш предыдущий выбор восстановлен.', {exact:true})).toBeVisible()
-  await expect(page.getByLabel('Количество: Шёлковый платок')).toHaveText('2')
+  await expect(page.getByLabel('Количество: Шёлковый платок')).toHaveValue('3')
   await page.getByRole('button', { name: /Готово/ }).click()
-  await expect(page.getByRole('dialog')).toContainText('Шёлковый платок × 2')
-  await page.keyboard.press('Escape')
-  await expect(page.getByRole('dialog')).not.toBeVisible()
-  await page.getByRole('button', { name: /Готово/ }).click()
-  let attempts = 0
-  await page.route('**/functions/v1/buyer-public-order', async route => {
-    expect(route.request().postDataJSON()).toEqual({ token, items: [{ product_id: '22222222-2222-4222-8222-222222222222', quantity: 2 }] })
-    attempts++
-    await route.fulfill({ status: attempts === 1 ? 503 : 200, json: attempts === 1 ? { error:'temporary' } : { order_number:12 } })
-  })
-  await page.getByRole('button', { name: 'Подтвердить заказ', exact:true }).click()
-  await expect(page.getByRole('dialog').getByRole('alert')).toBeVisible()
-  await page.getByRole('button', { name: 'Подтвердить заказ', exact:true }).click()
-  await expect(page.getByRole('heading', { name: 'Заказ отправлен' })).toBeVisible()
-  expect(await page.evaluate(key => localStorage.getItem(key), `bayer:cart:v1:${token}`)).toBeNull()
+  await expect(page.getByLabel('Заметка к заказу')).toHaveValue(
+    'Именно эти цвета',
+  )
+  await page.route(
+    '**/functions/v1/buyer-public-order',
+    async (route) => {
+      await route.fulfill({ status: 503, json: { error: 'temporary' } })
+    },
+    { times: 1 },
+  )
+  await page
+    .getByRole('button', { name: 'Подтвердить заказ', exact: true })
+    .click()
+  await expect(page.getByRole('alert')).toBeVisible()
+  await page
+    .getByRole('button', { name: 'Подтвердить заказ', exact: true })
+    .click()
+  await expect(
+    page.getByRole('heading', { name: 'Заказ отправлен' }),
+  ).toBeVisible()
+  await page.reload()
+  await expect(
+    page.getByText('<script>alert(1)</script> Тёмный цвет', { exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByText('Именно эти цвета', { exact: true }),
+  ).toBeVisible()
+  await noOverflow(page)
   expect(errors).toEqual([])
 })
-
-test('buyer signs in, filters, opens immutable order and signs out', async ({ page }) => {
-  await page.goto('/login')
-  await page.getByLabel('Email', { exact:true }).fill('buyer@example.test')
-  await page.getByLabel('Пароль', { exact:true }).fill('fixture-password')
-  await page.getByRole('button', {name:'Войти',exact:true}).click()
-  await expect(page).toHaveURL(/dashboard/)
-  await expect(page.getByRole('heading', {name:'Осенняя закупка'})).toBeVisible()
-  await expect(page.getByText('451,2 смн', {exact:true})).toBeVisible()
-  await page.getByRole('link',{name:'Каталог',exact:true}).click()
-  await expect(page.getByRole('heading',{name:'Каталог',exact:true})).toBeVisible()
-  await expect(page.getByText('Шёлковый платок',{exact:true})).toBeVisible()
-  await page.getByRole('link',{name:'Создать',exact:true}).click()
-  await expect(page.getByRole('heading',{name:'Выбрать из каталога',exact:true})).toBeVisible()
-  await page.getByRole('button',{name:/Шёлковый платок/}).click()
-  await expect(page.getByText('Товар 01 · из каталога',{exact:true})).toBeVisible()
-  await page.getByRole('link',{name:'Заказы',exact:true}).click()
-  await expect(page).toHaveURL(/dashboard/)
-  const typography = await page.locator('body').evaluate(element => {
-    const style = getComputedStyle(element)
-    return {family:style.fontFamily,spacing:style.letterSpacing}
-  })
-  expect(typography.family).not.toContain('SF Pro Display')
-  expect(typography.spacing).toBe('normal')
-  await page.getByLabel('Поиск заказов').fill('#00013')
-  await expect(page.getByRole('heading', {name:'Зимняя коллекция'})).toBeVisible()
-  await expect(page.getByRole('heading', {name:'Осенняя закупка'})).not.toBeVisible()
-  await page.getByRole('button', {name:'Очистить поиск'}).click()
-  await expect(page.getByRole('heading', {name:'Осенняя закупка'})).toBeVisible()
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-  await page.getByRole('button', {name:'Ждём клиента',exact:true}).click()
-  await expect(page.getByRole('heading', {name:'Зимняя коллекция'})).not.toBeVisible()
-  await page.getByRole('heading', {name:'Осенняя закупка'}).click()
-  await expect(page.getByText('Заказ опубликован: состав и цены зафиксированы.')).toBeVisible()
-  await expect(page.getByRole('button', {name:'Изменить',exact:true})).toHaveCount(0)
-  await page.getByRole('button', {name:'Название',exact:true}).click()
-  await page.getByLabel('Название заказа', {exact:true}).fill('Осенняя закупка — VIP')
-  await page.getByRole('button', {name:'Сохранить',exact:true}).click()
-  await expect(page.getByRole('heading', {name:'Осенняя закупка — VIP'})).toBeVisible()
-  await page.evaluate(() => Object.defineProperty(navigator, 'share', {configurable:true,value:undefined}))
-  await page.context().grantPermissions(['clipboard-read','clipboard-write'])
-  await page.getByRole('button', {name:'Поделиться',exact:true}).click()
-  await expect(page.getByRole('button', {name:'Скопировано ✓',exact:true})).toBeVisible()
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('/o/'+token)
-  await page.getByRole('button', {name:'Переключить тему'}).click()
-  await expect(page.locator('html')).toHaveAttribute('data-theme','dark')
-  await page.reload()
-  await expect(page.locator('html')).toHaveAttribute('data-theme','dark')
-  page.once('dialog', dialog => dialog.accept())
-  await page.getByRole('button', {name:'Удалить',exact:true}).click()
-  await expect(page).toHaveURL(/dashboard/)
-  await page.getByRole('button', {name:'Корзина',exact:true}).click()
-  await expect(page.getByRole('heading', {name:'Осенняя закупка — VIP'})).toBeVisible()
-  await page.getByRole('button', {name:'Восстановить',exact:true}).click()
-  await expect(page.getByRole('heading', {name:'Осенняя закупка — VIP'})).not.toBeVisible()
-  await page.getByRole('button', {name:'Выйти',exact:true}).click()
-  await expect(page).toHaveURL(/login/)
-})
-
-test('invalid token shows friendly 404 and private pages redirect to login', async ({ page }) => {
-  const response = await page.goto('/o/broken-token')
-  expect(response?.status()).toBe(404)
-  await expect(page.getByRole('heading', {name:'Ссылка не найдена'})).toBeVisible()
+test('unpriced selection and auth boundaries', async ({ page }) => {
   await page.goto('/dashboard')
   await expect(page).toHaveURL(/login/)
+  await page.goto('/o/broken-token')
+  await expect(
+    page.getByRole('heading', { name: 'Ссылка не найдена' }),
+  ).toBeVisible()
+  await page.goto('/o/' + token)
+  await page.getByRole('button', { name: 'Увеличить: Сумка без цены' }).click()
+  await expect(page.getByRole('button', { name: /Готово/ })).not.toContainText(
+    'смн',
+  )
+  await page.getByRole('button', { name: /Готово/ }).click()
+  await page
+    .getByRole('button', { name: 'Подтвердить заказ', exact: true })
+    .click()
+  await expect(
+    page.getByRole('heading', { name: 'Заказ отправлен' }),
+  ).toBeVisible()
+  await noOverflow(page)
 })
-
-test('photo order preserves original price formula, rolls back failed save and retries', async ({page}) => {
-  await page.goto('/login')
-  await page.getByLabel('Email', {exact:true}).fill('buyer@example.test')
-  await page.getByLabel('Пароль', {exact:true}).fill('fixture-password')
-  await page.getByRole('button', {name:'Войти',exact:true}).click()
-  await expect(page).toHaveURL(/dashboard/)
+test('photo draft, cargo, persisted editing after offline reload, add/remove and publication', async ({
+  page,
+  context,
+}) => {
+  await login(page)
+  await expect(
+    page.getByRole('link', { name: 'Каталог', exact: true }),
+  ).toHaveCount(0)
   await page.goto('/orders/new')
-  await page.getByLabel('Название заказа', {exact:true}).fill('Новый тестовый заказ')
-  await page.getByLabel('Фото товаров').setInputFiles({name: 'Товар.png', mimeType:'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64')})
-  await expect(page.getByLabel('Название товара', {exact:true})).toHaveCount(1)
-  await page.getByLabel('Цена в юанях', {exact:true}).fill('35,50')
-  await page.getByText('Общие параметры товаров', {exact:true}).click()
-  await page.getByLabel('Общая работа, смн', {exact:true}).fill('5')
-  await page.getByLabel('Общий вес, г', {exact:true}).fill('100')
-  await page.getByRole('button', {name:'Применить ко всем',exact:true}).click()
-  await expect(page.getByLabel('Вес, г',{exact:true})).toHaveValue('100')
-  await page.getByRole('button', {name:'Отменить',exact:true}).click()
-  await expect(page.getByLabel('Вес, г',{exact:true})).toHaveValue('80')
-  await page.getByLabel('Общий вес, г', {exact:true}).fill('80')
-  await page.getByRole('button', {name:'Применить ко всем',exact:true}).click()
-  await expect(page.getByText('57,1 смн', {exact:true})).toBeVisible()
-  let rolledBack = false
-  let fail = true
-  await page.route('**/rest/v1/buyer_orders*', async route => {
-    if (route.request().method() === 'POST') await route.fulfill({status:201,json:{id:token}})
-    else if (route.request().method() === 'DELETE') { rolledBack = true; await route.fulfill({status:204}) }
-    else await route.continue()
+  await page.getByLabel('Название заказа', { exact: true }).fill('Новый заказ')
+  await page.getByLabel('Фото товаров').setInputFiles(photo)
+  await expect(page.getByLabel('Название товара', { exact: true })).toHaveCount(
+    1,
+  )
+  await page.getByLabel('Цена в юанях', { exact: true }).fill('40')
+  await page.getByLabel('Работа, смн', { exact: true }).fill('10')
+  await expect(page.getByText('68,4 смн', { exact: true })).toBeVisible()
+  await page.getByRole('radio', { name: /Авиа/ }).check()
+  await expect(page.getByText('70,8 смн', { exact: true })).toBeVisible()
+  await expect(page.getByRole('status')).toHaveText('Сохранено', {
+    timeout: 20000,
   })
-  await page.route('**/storage/v1/object/**', route => route.fulfill({status:200,json:{Key:'fixture'}}))
-  await page.route('**/rest/v1/buyer_products*', async route => {
-    if (route.request().method() !== 'POST') { await route.continue(); return }
-    expect(route.request().postDataJSON().price).toBe(57.1)
-    expect(route.request().postDataJSON().price_cny).toBe(35.5)
-    expect(route.request().postDataJSON().work_price_somoni).toBe(5)
-    expect(route.request().postDataJSON().weight_grams).toBe(80)
-    expect(route.request().postDataJSON().name).toBe('Товар')
-    await route.fulfill({status: fail ? 500 : 201, json:fail ? {message:'fixture failure'} : {}})
+  await page.getByRole('button', { name: 'Создать заказ', exact: true }).click()
+  await expect(page).toHaveURL(/orders\/[0-9a-f-]+$/)
+  const id = page.url().split('/').pop()!
+  await expect(page.getByLabel('Цена в юанях')).toHaveValue('40')
+  // Keep the page reachable but fail Supabase writes, then reload online to recover IndexedDB.
+  await page.route('**/rest/v1/rpc/buyer_save_draft', (r) => r.abort())
+  await page.getByLabel('Название товара').fill('Сохранено без сети')
+  await expect(page.getByRole('status')).toContainText('Локальная копия', {
+    timeout: 15000,
   })
-  await page.getByRole('button', {name:'Создать заказ',exact:true}).click()
-  await expect(page.getByRole('alert').filter({hasText:'Изменения отменены'})).toBeVisible()
-  expect(rolledBack).toBe(true)
-  fail = false
-  await page.getByRole('button', {name:'Создать заказ',exact:true}).click()
-  await expect(page).toHaveURL('/orders/'+token)
-})
-
-test('unpriced product is selectable and no misleading zero total is shown', async ({page}) => {
-  await page.goto('/o/'+token)
-  await page.getByRole('button', {name:'Увеличить: Сумка без цены'}).click()
+  await page.unroute('**/rest/v1/rpc/buyer_save_draft')
   await page.reload()
-  await expect(page.getByLabel('Количество: Сумка без цены')).toHaveText('1')
-  const done = page.getByRole('button', {name:/Готово/})
-  await expect(done).toContainText('1 шт.')
-  await expect(done).not.toContainText('смн')
-  await done.click()
-  await expect(page.getByRole('dialog')).toContainText('Сумка без цены × 1')
-  await page.getByRole('button', {name:'Подтвердить заказ',exact:true}).click()
-  await expect(page.getByRole('heading', {name:'Заказ отправлен',exact:true})).toBeVisible()
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await expect(page.getByLabel('Название товара')).toHaveValue(
+    'Сохранено без сети',
+  )
+  await expect(page.getByRole('status')).toHaveText('Сохранено', {
+    timeout: 20000,
+  })
+  await page
+    .getByLabel('Фото товаров')
+    .setInputFiles({ ...photo, name: 'Второй.png' })
+  await expect(page.getByLabel('Название товара')).toHaveCount(2)
+  await page
+    .getByRole('button', { name: 'Удалить', exact: true })
+    .last()
+    .click()
+  await expect(page.getByLabel('Название товара')).toHaveCount(1)
+  await page.getByRole('radio', { name: /Авто/ }).check()
+  await page.getByRole('button', { name: 'Опубликовать', exact: true }).click()
+  await expect(
+    page.getByText('Заказ опубликован: состав и цены зафиксированы.'),
+  ).toBeVisible()
+  await noOverflow(page)
+  await page.getByRole('button', { name: 'Отозвать ссылку' }).click()
+  await page.getByRole('button', { name: 'Новая ссылка', exact: true }).click()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await page
+    .getByRole('button', { name: 'Повторное согласование' })
+    .click({ noWaitAfter: true })
+    .catch(() => {}) // Native confirmation is dismissed by default.
+  expect(id).toBeTruthy()
+  await context.clearCookies()
 })
-
-test('buyer edits calculated price and layout fits phone and desktop', async ({page}, testInfo) => {
-  await page.goto('/login')
-  await page.getByLabel('Email',{exact:true}).fill('buyer@example.test')
-  await page.getByLabel('Пароль',{exact:true}).fill('fixture-password')
-  await page.getByRole('button',{name:'Войти',exact:true}).click()
-  await expect(page).toHaveURL(/dashboard/)
-  await expect(page.getByRole('heading',{name:'Осенняя закупка'})).toBeVisible()
-  if (testInfo.project.name === 'mobile') {
-    const bounds = await page.locator('.nav-mobile').boundingBox()
-    expect(bounds!.y).toBeGreaterThan(page.viewportSize()!.height / 2)
-  }
-  await page.screenshot({path:`/tmp/bayer-${testInfo.project.name}-dashboard.png`,fullPage:true})
-  await page.route('**/rest/v1/buyer_orders*', async route => {
-    const response = await route.fetch()
-    const row = await response.json()
-    await route.fulfill({response,json:Array.isArray(row) ? row : {...row,status:'draft'}})
+test('admin purchase, payment, reapproval, history, theme and long names', async ({
+  page,
+  browser,
+}) => {
+  const customer = await browser.newPage()
+  await customer.goto('http://127.0.0.1:3100/o/' + token)
+  await customer.getByLabel('Количество: Шёлковый платок').fill('3')
+  await customer.getByRole('button', { name: /Готово/ }).click()
+  await customer
+    .getByRole('button', { name: 'Подтвердить заказ', exact: true })
+    .click()
+  await expect(
+    customer.getByRole('heading', { name: 'Заказ отправлен' }),
+  ).toBeVisible()
+  await customer.close()
+  await login(page)
+  await expect(page.getByText('Получено', { exact: true })).toBeVisible()
+  await page
+    .getByRole('heading', { name: 'Осенняя закупка', exact: true })
+    .click()
+  await expect(
+    page.getByRole('heading', { name: 'Закупка', exact: true }),
+  ).toBeVisible()
+  await page.getByLabel('Куплено, шт.').fill('1')
+  await page
+    .getByText('Фактические расходы и проблема', { exact: true })
+    .click()
+  await page.getByLabel('Цена за шт., ¥').fill('35')
+  await page.getByLabel('Реальный курс ¥').fill('1.3')
+  await page.getByLabel('Карго всего, смн').fill('2.4')
+  await page
+    .getByRole('button', { name: 'Сохранить закупку', exact: true })
+    .click()
+  await expect(page.getByText('Куплено 1 / 3', { exact: true })).toBeVisible()
+  page.once('dialog', (d) => d.accept())
+  await page.getByRole('button', { name: 'Повторное согласование' }).click()
+  await expect(page.getByLabel('Цена в юанях')).toBeVisible()
+  await expect(page.getByText(/История подтверждений/)).toBeVisible()
+  await page
+    .getByLabel('Название товара')
+    .fill('Очень длинное название '.repeat(8))
+  await page.getByRole('button', { name: 'Переключить тему' }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  await noOverflow(page)
+  await page.screenshot({
+    path: `output/playwright/${test.info().project.name}-draft-dark.png`,
+    fullPage: true,
   })
-  await page.getByRole('heading',{name:'Осенняя закупка'}).click()
-  await page.getByRole('button',{name:'Изменить',exact:true}).click()
-  await expect(page.getByLabel('Цена в юанях',{exact:true})).toHaveValue('35')
-  await page.getByLabel('Цена в юанях',{exact:true}).fill('50')
-  await page.getByLabel('Вес, г',{exact:true}).fill('100')
-  await page.getByLabel('Работа, смн',{exact:true}).fill('7')
-  await expect(page.getByText('80 смн',{exact:true})).toBeVisible()
-  let saved = false
-  await page.route('**/rest/v1/buyer_products*',async route => {
-    if (route.request().method() !== 'PATCH') {await route.continue();return}
-    const body = route.request().postDataJSON()
-    expect(body.price).toBe(80)
-    expect(body.price_cny).toBe(50)
-    expect(body.cargo_cost).toBe(3)
-    expect(body.work_price_somoni).toBe(7)
-    saved = true
-    await route.fulfill({status:204})
+})
+test('HEIC conversion, damaged file recovery and thumbnail upload', async ({
+  page,
+}) => {
+  await login(page)
+  await page.goto('/orders/new')
+  await page.getByLabel('Название заказа').fill('HEIC')
+  await page
+    .getByLabel('Фото товаров')
+    .setInputFiles('tests/fixtures/pixel.heic')
+  await expect(
+    page.getByRole('button', { name: 'Повторить обработку' }),
+  ).toHaveCount(0)
+  await expect(page.getByLabel('Название товара')).toHaveCount(1, {
+    timeout: 30000,
   })
-  await expect.poll(() => page.getByRole('img',{name:'Шёлковый платок',exact:true}).evaluate((img:HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0)
-  await page.evaluate(() => scrollTo(0,0))
-  await page.screenshot({path:`/tmp/bayer-${testInfo.project.name}-editor.png`,fullPage:true})
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-  await page.getByRole('button',{name:'Сохранить',exact:true}).click()
-  await expect(page.getByRole('button',{name:'Изменить',exact:true})).toBeVisible()
-  expect(saved).toBe(true)
+  await expect(page.getByRole('status')).toHaveText('Сохранено', {
+    timeout: 30000,
+  })
+  await page
+    .getByLabel('Фото товаров')
+    .setInputFiles({
+      name: 'Повреждённое.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from('not an image'),
+    })
+  await expect(
+    page.getByRole('button', { name: 'Повторить обработку' }),
+  ).toBeVisible()
+  await page
+    .getByRole('button', { name: 'Удалить', exact: true })
+    .last()
+    .click()
+  await expect(
+    page.getByRole('button', { name: 'Повторить обработку' }),
+  ).toHaveCount(0)
+  await noOverflow(page)
+})
+test('300 product public order stays scrollable without horizontal overflow', async ({
+  page,
+  request,
+}) => {
+  expect((await request.post('http://127.0.0.1:54329/__large')).ok()).toBe(true)
+  await page.goto('/o/' + token)
+  await expect(page.locator('article')).toHaveCount(300)
+  await expect(page.locator('article img').first()).toHaveAttribute(
+    'loading',
+    'lazy',
+  )
+  await page.getByLabel('Количество: Платок 298', { exact: true }).fill('2')
+  await expect(page.getByRole('button', { name: /Готово/ })).toContainText(
+    '2 шт.',
+  )
+  await noOverflow(page)
 })

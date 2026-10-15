@@ -8,5 +8,6 @@ const client = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABAS
 Deno.serve(createHandler(client, createTelegramNotifier(client, {
   botToken: Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '',
   chatId: Deno.env.get('TELEGRAM_CHAT_ID') ?? '',
+  adminUrl: Deno.env.get('BAYER_ADMIN_URL')??'',
   ownerId: Deno.env.get('TELEGRAM_BUYER_ID') ?? '',
 })))

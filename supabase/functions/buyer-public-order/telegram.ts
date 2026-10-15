@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-type Config = { botToken: string; chatId: string; ownerId: string }
+type Config = { botToken: string; chatId: string; ownerId: string; adminUrl?:string }
 export type Receipt = { submission_id: string; order_id: string; order_number: number; total_quantity: number; confirmed_at: string }
 
 // Best-effort delivery: the order is already committed. A failed notification
@@ -17,7 +17,7 @@ export function createTelegramNotifier(client: SupabaseClient, config: Config, s
     try {
       const response = await send(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
         method: 'POST', headers: {'Content-Type': 'application/json'}, signal: AbortSignal.timeout(5000),
-        body: JSON.stringify({chat_id: config.chatId, text: `Новый подтверждённый заказ #${String(receipt.order_number).padStart(5, '0')}\nВсего: ${receipt.total_quantity} шт.\nПодтверждён: ${receipt.confirmed_at}`}),
+        body: JSON.stringify({chat_id: config.chatId, text: `Новый подтверждённый заказ #${String(receipt.order_number).padStart(5, '0')}\nВсего: ${receipt.total_quantity} шт.\nПодтверждён: ${receipt.confirmed_at}${config.adminUrl?'\n'+config.adminUrl.replace(/\/$/,'')+'/orders/'+receipt.order_id:''}`}),
       })
       const result = await response.json()
       if (!response.ok || !result.ok) throw new Error('Telegram rejected notification')
