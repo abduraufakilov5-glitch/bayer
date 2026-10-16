@@ -50,3 +50,23 @@ test('optional price preserves absent and zero values and rejects invalid inputs
   assert.equal(parseOptionalPrice('12,50'), 12.5)
   for (const value of ['-1', 'Infinity', '1.001', '1000001']) assert.ok(Number.isNaN(parseOptionalPrice(value)))
 })
+
+
+test('order finances use selected quantities, separate cargo and preserve receipt costs', async () => {
+  const {calculateOrderFinances} = await import('../lib/pricing.ts')
+  const products = [
+    {id:'a',price_cny:35,cargo_cost:2.4,weight_grams:80},
+    {id:'b',price_cny:10,cargo_cost:6,weight_grams:200},
+    {id:'unselected',price_cny:999,cargo_cost:100},
+  ] as import('../lib/types').Product[]
+  const items = [
+    {product_id:'a',price:56.4,quantity:2,cost_price:51.4},
+    {product_id:'b',price:23,quantity:3,cost_price:20},
+  ] as import('../lib/types').SubmissionItem[]
+  assert.deepEqual(calculateOrderFinances(items,products), {purchase:140,cargo:22.8,revenue:181.8,costs:162.8,earnings:19})
+  products[0].price_cny = 100
+  assert.equal(calculateOrderFinances(items,products).purchase,140)
+  assert.deepEqual(calculateOrderFinances([{product_id:null,price:10,quantity:2,cost_price:null}] as import('../lib/types').SubmissionItem[], []), {purchase:null,cargo:null,revenue:20,costs:null,earnings:null})
+  assert.equal(calculateOrderFinances([{product_id:null,price:10,quantity:2,cost_price:12}] as import('../lib/types').SubmissionItem[], []).earnings,-4)
+  assert.deepEqual(calculateOrderFinances([{product_id:'free',price:0,quantity:2,cost_price:0}] as import('../lib/types').SubmissionItem[], [{id:'free',price_cny:0,cargo_cost:0}] as import('../lib/types').Product[]), {purchase:0,cargo:0,revenue:0,costs:0,earnings:0})
+})

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Order, OrderStatus, Product, Submission } from '@/lib/types'
-import { calculateCargo, calculateClientPrice, DEFAULT_WEIGHT_GRAMS, formatSomoni } from '@/lib/pricing'
+import { calculateCargo, calculateClientPrice, calculateOrderFinances, DEFAULT_WEIGHT_GRAMS, formatSomoni } from '@/lib/pricing'
 
 import { PricingFields, type PricingDraft } from '@/app/components/pricing-fields'
 import { Icon } from '@/app/components/icons'
@@ -79,6 +79,8 @@ export default function OrderDetailPage() {
   const publicLink = useMemo(() => order ? window.location.origin + '/o/' + order.public_token : '', [order])
   const productsTotal = useMemo(() => products.reduce((sum, product) => sum + (product.price ?? 0), 0), [products])
   const submissionTotal = useMemo(() => submission?.items.reduce((sum, item) => sum + (item.price ?? 0) * item.quantity, 0) ?? 0, [submission])
+
+  const orderFinances = useMemo(() => submission ? calculateOrderFinances(submission.items, products) : null, [submission, products])
 
   async function generateLink() {
     if (!order || order.deleted_at || busy) return
@@ -204,6 +206,16 @@ export default function OrderDetailPage() {
         {item.product_id && imageUrls[item.product_id] ? <Image unoptimized width={224} height={224} src={imageUrls[item.product_id]} alt="Фото выбранного товара" className="h-40 w-40 shrink-0 rounded-xl bg-neutral-100 object-contain sm:h-56 sm:w-56"/> : <div role="img" aria-label="Фото товара недоступно" className="flex h-40 w-40 shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-neutral-400 sm:h-56 sm:w-56"><Icon name="photo" size={32}/></div>}
         <div className="min-w-0 flex-1"><span className="text-xl font-semibold">× {item.quantity}</span>{item.price != null && <div className="mt-2 text-xs text-neutral-500">{formatSomoni(item.price)} за шт.</div>}</div>
       </div>)}</div><div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 pt-5"><span className="text-sm text-neutral-500">Всего {submission.total_quantity} шт.</span>{submission.items.every(item => item.price != null) && <strong className="text-2xl font-semibold tracking-tight">{formatSomoni(submissionTotal)}</strong>}</div></section>}
+    {orderFinances && <section aria-labelledby="order-finance-title">
+      <h2 id="order-finance-title" className="mb-4 text-xl font-semibold tracking-tight">Расчёт этого заказа</h2>
+      <div className="finance-card">
+        <div className="finance-metric"><span>Закупка товаров</span><strong>{orderFinances.purchase == null ? '—' : formatSomoni(orderFinances.purchase)}</strong></div>
+        <div className="finance-metric"><span>Карго</span><strong>{orderFinances.cargo == null ? '—' : formatSomoni(orderFinances.cargo)}</strong></div>
+        <div className={'finance-metric' + (orderFinances.earnings != null && orderFinances.earnings >= 0 ? ' earned' : '')}><span>Вам останется</span><strong>{orderFinances.earnings == null ? '—' : formatSomoni(orderFinances.earnings)}</strong></div>
+      </div>
+      <p className="-mt-3 text-xs leading-5 text-neutral-500">Только выбранные клиентом товары с учётом количества. Закупка по курсу ¥1 = 1,4 смн. Карго по тарифам товаров. Остаток = сумма клиента − закупка − карго.</p>
+      {(orderFinances.purchase == null || orderFinances.cargo == null || orderFinances.earnings == null) && <p className="mt-2 text-xs text-neutral-500">Для полного расчёта не хватает закупочной цены, стоимости карго или цены клиента у некоторых товаров.</p>}
+    </section>}
     <div className="flex items-center justify-between"><h2 className="text-xl font-semibold tracking-tight">Товары подборки</h2><span className="order-id">{products.length} позиций</span></div>
     {order.status !== 'draft' && <p className="text-xs text-neutral-500">Заказ опубликован: состав и цены зафиксированы.</p>}
     <div className="space-y-4">{products.map(product => <article key={product.id} className="panel product-editor"><div className="product-editor-body">
