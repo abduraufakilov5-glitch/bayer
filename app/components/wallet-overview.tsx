@@ -71,7 +71,7 @@ export function WalletMetrics({ data }: { data: WalletData }) {
       </p>
       <p className="subtitle text-xs mt-2">
         Долги показаны отдельно и не включены в прогноз. Валютные счета оценены
-        по НБТ; операции в отчётах — по зафиксированным курсам.
+        по Visa Алиф; операции в отчётах — по зафиксированным курсам.
       </p>
       {s.refunds > 0 && (
         <p className="notice mt-3">
@@ -85,7 +85,7 @@ export function WalletMetrics({ data }: { data: WalletData }) {
       )}
       {s.unvalued && (
         <p role="status" className="notice mt-3">
-          Для общей суммы валютных счетов нужен курс НБТ. Остатки в валюте
+          Для общей суммы валютных счетов нужен курс Visa Алиф. Остатки в валюте
           доступны в разделе «Счета».
         </p>
       )}

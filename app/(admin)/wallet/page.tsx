@@ -1035,7 +1035,7 @@ export default function WalletPage() {
                             !rates?.usd
                           )
                             throw new Error(
-                              'Укажите вес и дождитесь курса доллара НБТ',
+                              'Укажите вес и дождитесь курса доллара Visa Алиф',
                             )
                           checked(
                             await createClient()
@@ -1200,7 +1200,7 @@ export default function WalletPage() {
                     Курс к сомони
                     <input
                       inputMode="decimal"
-                      placeholder="НБТ или 1 для TJS"
+                      placeholder="Visa Алиф или 1 для TJS"
                       value={debt.rate}
                       onChange={(e) =>
                         setDebt((d) => ({ ...d, rate: e.target.value }))

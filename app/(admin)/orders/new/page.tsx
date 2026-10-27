@@ -7,7 +7,7 @@ import Image from 'next/image'
 import { parseDecimal, validPricing, safeSupplierUrl, MAX_ORDER_PRODUCTS } from '@/lib/validation'
 import { RateSettings, useRates } from '@/app/components/exchange-rates'
 import { createClient } from '@/lib/supabase/client'
-import { calculateCargo, calculateClientPrice, DEFAULT_WEIGHT_GRAMS, formatSomoni } from '@/lib/pricing'
+import { calculateCargo, calculateClientPrice, DEFAULT_WEIGHT_GRAMS, formatSomoni, roundMoney } from '@/lib/pricing'
 import { PricingFields, type PricingDraft } from '@/app/components/pricing-fields'
 import { Icon } from '@/app/components/icons'
 import type { CatalogProduct } from '@/lib/types'
@@ -84,7 +84,7 @@ export default function NewOrderPage() {
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (savingRef.current) return
-    if (!rates.ready) {setError('Дождитесь курса НБТ или задайте ручной курс.');return}
+    if (!rates.ready) {setError('Дождитесь курса Visa Алиф или задайте ручной курс.');return}
     if (!title.trim() || !products.length || products.some(p => !p.name.trim() || (!p.file && !p.imagePath) || !validPricing(p.name, p.priceCny.trim() ? parseDecimal(p.priceCny) : 0, parseDecimal(p.workPrice), Number(p.weightGrams)) || (p.supplierUrl.trim() && !safeSupplierUrl(p.supplierUrl)))) { setError('Добавьте фото и названия товаров. Проверьте цену и ссылку поставщика.'); return }
     savingRef.current = true; setSaving(true); setError(''); setProgress(0)
     const supabase = createClient()
@@ -117,7 +117,7 @@ export default function NewOrderPage() {
             catalogIds.push(catalogRow.id)
           }
           if (!path) throw new Error('Не найдено фото товара «' + product.name + '».')
-          const {error: productError} = await supabase.from('buyer_products').insert({order_id: orderId, catalog_product_id:catalogProductId, name: product.name.trim(), price: priceCny == null ? null : calculateClientPrice(priceCny,work,weight,rates.cny,rates.usd), price_cny: priceCny, purchase_cost_tjs:priceCny==null?null:Math.round(priceCny*rates.cny*100)/100, cny_rate:rates.cny, usd_rate:rates.usd, work_price_somoni:work, weight_grams:weight, cargo_cost:calculateCargo(weight,rates.usd), supplier_url: safeSupplierUrl(product.supplierUrl), image_path: path, sort_order: start + offset})
+          const {error: productError} = await supabase.from('buyer_products').insert({order_id: orderId, catalog_product_id:catalogProductId, name: product.name.trim(), price: priceCny == null ? null : calculateClientPrice(priceCny,work,weight,rates.cny,rates.usd), price_cny: priceCny, purchase_cost_tjs:priceCny==null?null:roundMoney(priceCny*rates.cny), cny_rate:rates.cny, usd_rate:rates.usd, work_price_somoni:work, weight_grams:weight, cargo_cost:calculateCargo(weight,rates.usd), supplier_url: safeSupplierUrl(product.supplierUrl), image_path: path, sort_order: start + offset})
           if (productError) throw new Error('Не удалось сохранить товар «' + product.name + '».')
           setProgress(++done)
         }))

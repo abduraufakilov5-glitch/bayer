@@ -12,7 +12,13 @@ import {
   type WalletData,
   type Entry,
 } from '../lib/wallet'
-import { dushanbeDate, parseNbtHtml, parseRate } from '../lib/exchange-rates'
+import {
+  dushanbeDate,
+  parseAlifVisaRates,
+  isFreshVisaRates,
+  ALIF_VISA_SOURCE,
+  parseRate,
+} from '../lib/exchange-rates'
 function entry(p: Partial<Entry>): Entry {
   return {
     id: 'e',
@@ -145,22 +151,83 @@ test('Dushanbe dates and Monday/month boundaries cross UTC, month and year corre
   assert.equal(parseQuickExpense('такси -30'), null)
   assert.equal(parseRate('1,3832'), 1.3832)
 })
-test('NBT parser respects date, currency codes and nominal units; rejects incomplete data', () => {
-  const html =
-    'установил на <strong>27.10.2026</strong>' +
-    [
-      ['840', 1, 9.224],
-      ['156', 1, 1.3832],
-      ['810', 10, 1.144],
-    ]
-      .map(
-        ([code, n, v]) =>
-          `<tr><td>1</td><td>${code}</td><td>${n}</td><td>Валюта</td><td>${v}</td></tr>`,
-      )
-      .join('')
-  const r = parseNbtHtml(html)
-  assert.equal(r.date, '2026-10-27')
-  assert.equal(r.usd, 9.224)
-  assert.equal(r.rub, 0.1144)
-  assert.throws(() => parseNbtHtml('<html>Unavailable</html>'))
+test('Alif selects Visa sell quotes and ignores all other channels', () => {
+  const now = new Date('2026-10-27T12:00:00Z')
+  const payload = {
+    localRates: [
+      ['USD', '9.2500'],
+      ['CNY', '1.3933'],
+      ['RUB', '0.1159'],
+    ].map(([name, visaSellValue]) => ({
+      name,
+      visaSellValue,
+      visaBuyValue: '999',
+      sellValue: '888',
+      nbtValue: '777',
+      walletSellValue: '666',
+      createdAt: '2026-10-27 12:17:36',
+      updatedAt: null,
+    })),
+  }
+  const r = parseAlifVisaRates(payload, now)
+  assert.equal(r.usd, 9.25)
+  assert.equal(r.cny, 1.3933)
+  assert.equal(r.rub, 0.1159)
+  assert.equal(r.source, ALIF_VISA_SOURCE)
+  assert.ok(isFreshVisaRates(r, now))
+  assert.equal(
+    isFreshVisaRates({ ...r, source: 'https://nbt.tj/ru/kurs/kurs.php' }, now),
+    false,
+  )
+  assert.equal(isFreshVisaRates(r, new Date('2026-10-27T13:00:00Z')), false)
+  assert.equal(
+    isFreshVisaRates(
+      { ...r, fetched_at: '2026-10-27T18:59:00Z' },
+      new Date('2026-10-27T19:01:00Z'),
+    ),
+    false,
+  )
+  assert.throws(() =>
+    parseAlifVisaRates({ localRates: payload.localRates.slice(1) }, now),
+  )
+  assert.throws(() =>
+    parseAlifVisaRates(
+      { localRates: [...payload.localRates, payload.localRates[0]] },
+      now,
+    ),
+  )
+  for (const value of [null, '', 0, 'NaN', '-1', 'Infinity']) {
+    assert.throws(() =>
+      parseAlifVisaRates(
+        {
+          localRates: payload.localRates.map((row, i) =>
+            i === 0 ? { ...row, visaSellValue: value } : row,
+          ),
+        },
+        now,
+      ),
+    )
+  }
+  assert.throws(() =>
+    parseAlifVisaRates(
+      {
+        localRates: payload.localRates.map((row) => ({
+          ...row,
+          updatedAt: '2026-10-28 00:00:00',
+        })),
+      },
+      now,
+    ),
+  )
+  assert.throws(() =>
+    parseAlifVisaRates(
+      {
+        localRates: payload.localRates.map((row) => ({
+          ...row,
+          createdAt: '2026-02-30',
+        })),
+      },
+      now,
+    ),
+  )
 })

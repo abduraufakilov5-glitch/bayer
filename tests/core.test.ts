@@ -9,6 +9,8 @@ test('pricing includes purchase, cargo and buyer work without floating point tai
   assert.equal(calculateCargo(120, 9.224), 3.87)
   assert.equal(calculateClientPrice(35, 5, 120, 1.45, 9.224), 59.62)
   assert.equal(roundMoney(1.005), 1.01)
+  assert.equal(roundMoney(69.665), 69.67)
+  assert.equal(roundMoney(-69.665), -69.67)
 })
 test('pricing requires explicit prices, accepts Russian decimals and rejects invalid weights/URLs', () => {
   assert.equal(parseDecimal(' 12,50 '), 12.5)
