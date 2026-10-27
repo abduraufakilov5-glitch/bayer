@@ -5,6 +5,7 @@ import { Icon } from './icons'
 export function Navigation({mobile = false}: {mobile?:boolean}) {
   const pathname = usePathname()
   const items = [
+    {href:'/wallet',label:'Кошелёк',icon:'grid' as const},
     {href:'/dashboard',label:'Заказы',icon:'bag' as const},
     {href:'/catalog',label:'Каталог',icon:'grid' as const},
     {href:'/orders/new',label:'Создать',icon:'plus' as const},

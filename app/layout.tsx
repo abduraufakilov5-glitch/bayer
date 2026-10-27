@@ -3,8 +3,8 @@ import Script from 'next/script'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Bayer',
-  description: 'Bayer — заказы для закупок',
+  title: 'Мой баланс',
+  description: 'Мой баланс — заказы и личные деньги',
   manifest: '/manifest.webmanifest',
   icons: {
     icon: '/icon',
@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    title: 'Bayer',
+    title: 'Мой баланс',
     statusBarStyle: 'black-translucent',
   },
 }

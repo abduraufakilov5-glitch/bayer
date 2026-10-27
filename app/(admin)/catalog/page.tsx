@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { parseDecimal, validPricing, safeSupplierUrl } from '@/lib/validation'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { RateSettings, useRates } from '@/app/components/exchange-rates'
 import { createClient } from '@/lib/supabase/client'
 import type { CatalogProduct } from '@/lib/types'
 import { calculateCargo, calculateClientPrice, DEFAULT_WEIGHT_GRAMS, formatSomoni } from '@/lib/pricing'
@@ -12,6 +13,7 @@ import { calculateCargo, calculateClientPrice, DEFAULT_WEIGHT_GRAMS, formatSomon
 type Draft = { name: string; price_cny: string; work_price_somoni: string; weight_grams: string; supplier_url: string }
 
 export default function CatalogPage() {
+  const rates = useRates()
   const imageCache = useRef<ImageCache>(new Map())
   const [items, setItems] = useState<CatalogProduct[]>([])
   const [urls, setUrls] = useState<Record<string, string>>({})
@@ -95,7 +97,7 @@ export default function CatalogPage() {
         <Link href="/orders/new" className="inline-flex justify-center rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-black/10">＋ Новый заказ</Link>
       </div>
 
-      <section className="rounded-[28px] bg-white p-4 shadow-[0_8px_30px_rgba(0,0,0,0.05)] ring-1 ring-black/5">
+      <RateSettings/><section className="rounded-[28px] bg-white p-4 shadow-[0_8px_30px_rgba(0,0,0,0.05)] ring-1 ring-black/5">
         <div className="flex gap-2 rounded-2xl bg-neutral-100 p-1">
           <button onClick={() => setShowArchived(false)} className={"flex-1 rounded-xl px-3 py-2.5 text-sm font-medium " + (!showArchived ? 'bg-white shadow-sm' : 'text-neutral-500')}>Активные · {items.filter((x) => x.active).length}</button>
           <button onClick={() => setShowArchived(true)} className={"flex-1 rounded-xl px-3 py-2.5 text-sm font-medium " + (showArchived ? 'bg-white shadow-sm' : 'text-neutral-500')}>Скрытые · {items.filter((x) => !x.active).length}</button>
@@ -114,7 +116,7 @@ export default function CatalogPage() {
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {visible.map((item) => {
-            const finalPrice = item.price_cny == null ? null : calculateClientPrice(item.price_cny, item.work_price_somoni, item.weight_grams)
+            const finalPrice = item.price_cny == null ? null : calculateClientPrice(item.price_cny, item.work_price_somoni, item.weight_grams,rates.cny,rates.usd)
             return (
               <article key={item.id} className="overflow-hidden rounded-[24px] bg-white shadow-[0_8px_30px_rgba(0,0,0,0.05)] ring-1 ring-black/5">
                 <div className="aspect-square bg-neutral-100">
@@ -136,8 +138,8 @@ export default function CatalogPage() {
                   ) : (
                     <>
                       <div className="truncate font-medium">{item.name}</div>
-                      <div className="mt-1 text-sm font-semibold">{finalPrice == null ? 'Без цены' : formatSomoni(finalPrice)}</div>
-                      <div className="mt-1 text-[11px] text-neutral-500">{item.price_cny == null ? 'Цена не указана' : `¥${item.price_cny} · карго ${formatSomoni(calculateCargo(item.weight_grams))} · работа ${formatSomoni(item.work_price_somoni)}`}</div>
+                      <div className="mt-1 text-sm font-semibold">{finalPrice == null ? 'Без цены' : !rates.ready ? 'Ждём курс' : formatSomoni(finalPrice)}</div>
+                      <div className="mt-1 text-[11px] text-neutral-500">{item.price_cny == null ? 'Цена не указана' : !rates.ready ? `¥${item.price_cny}` : `¥${item.price_cny} · карго ${formatSomoni(calculateCargo(item.weight_grams,rates.usd))} · работа ${formatSomoni(item.work_price_somoni)}`}</div>
                       <div className="mt-3 flex items-center gap-2 text-xs">
                         <button onClick={() => startEdit(item)} className="rounded-xl bg-neutral-100 px-3 py-2 font-medium">Изменить</button>
                         <button onClick={() => toggleActive(item)} className="rounded-xl bg-neutral-100 px-3 py-2 font-medium">{item.active ? 'Скрыть' : 'Вернуть'}</button>

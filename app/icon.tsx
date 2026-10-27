@@ -20,7 +20,7 @@ export default function Icon() {
         borderRadius: 108,
       }}
     >
-      B
+      М
     </div>,
     { width: 512, height: 512 },
   )

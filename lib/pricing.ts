@@ -1,15 +1,18 @@
 import type { Product, SubmissionItem } from './types'
 
-export const CNY_TO_TJS = 1.4
-export const CARGO_PER_KG_TJS = 30
-export const DEFAULT_WEIGHT_GRAMS = 80
+export const CNY_TO_TJS = 1.45
+export const CARGO_PER_KG_USD = 3.5
+// Explicit dated fallback; new orders can use daily NBT or a manual rate.
+export const USD_TO_TJS = 9.224
+export const CARGO_PER_KG_TJS = CARGO_PER_KG_USD * USD_TO_TJS
+export const DEFAULT_WEIGHT_GRAMS = 120
 
-export function calculateCargo(weightGrams: number = DEFAULT_WEIGHT_GRAMS) {
-  return roundMoney((weightGrams / 1000) * CARGO_PER_KG_TJS)
+export function calculateCargo(weightGrams: number = DEFAULT_WEIGHT_GRAMS, usdRate: number = USD_TO_TJS) {
+  return roundMoney((weightGrams / 1000) * CARGO_PER_KG_USD * usdRate)
 }
 
-export function calculateClientPrice(priceCny: number, workPriceSomoni: number = 0, weightGrams: number = DEFAULT_WEIGHT_GRAMS) {
-  return roundMoney(priceCny * CNY_TO_TJS + calculateCargo(weightGrams) + workPriceSomoni)
+export function calculateClientPrice(priceCny: number, workPriceSomoni: number = 0, weightGrams: number = DEFAULT_WEIGHT_GRAMS, cnyRate: number = CNY_TO_TJS, usdRate: number = USD_TO_TJS) {
+  return roundMoney(priceCny * cnyRate + calculateCargo(weightGrams, usdRate) + workPriceSomoni)
 }
 
 export function roundMoney(value: number) {
@@ -27,10 +30,10 @@ export function calculateOrderFinances(items: SubmissionItem[], products: Produc
   let revenue: number | null = 0, costs: number | null = 0
   for (const item of items) {
     const product = item.product_id ? byId.get(item.product_id) : undefined
-    const shipping = product?.cargo_cost ?? (product?.weight_grams != null ? calculateCargo(product.weight_grams) : null)
+    const shipping = product?.cargo_cost ?? (product?.weight_grams != null ? roundMoney(product.weight_grams / 1000 * (product.usd_rate ? CARGO_PER_KG_USD * product.usd_rate : 30)) : null)
     const buying = item.cost_price != null && shipping != null
       ? roundMoney(item.cost_price - shipping)
-      : product?.price_cny != null ? roundMoney(product.price_cny * CNY_TO_TJS) : null
+      : product?.price_cny != null ? roundMoney(product.purchase_cost_tjs ?? product.price_cny * 1.4) : null
     const cost = item.cost_price ?? (buying != null && shipping != null ? roundMoney(buying + shipping) : null)
     purchase = purchase == null || buying == null ? null : roundMoney(purchase + buying * item.quantity)
     cargo = cargo == null || shipping == null ? null : roundMoney(cargo + shipping * item.quantity)

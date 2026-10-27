@@ -27,6 +27,9 @@ export type CatalogProduct = {
 }
 
 export type Product = {
+  purchase_cost_tjs?: number | null
+  cny_rate?: number | null
+  usd_rate?: number | null
   id: string
   order_id: string
   catalog_product_id: string | null
