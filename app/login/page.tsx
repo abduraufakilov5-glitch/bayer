@@ -32,7 +32,7 @@ export default function LoginPage() {
       const supabase = createClient()
       const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
       if (authError) { setError('Не удалось войти. Проверьте email и пароль.'); return }
-      router.replace('/dashboard')
+      router.replace('/wallet')
       router.refresh()
     } catch { setError('Нет подключения к серверу. Попробуйте снова.') }
     finally { setLoading(false) }

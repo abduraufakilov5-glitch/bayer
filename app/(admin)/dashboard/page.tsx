@@ -1,12 +1,10 @@
 'use client'
 import Link from 'next/link'
-import { WalletOverview } from '@/app/components/wallet-overview'
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { FinanceSummary, Order, OrderStatus } from '@/lib/types'
+import type { Order, OrderStatus } from '@/lib/types'
 import { statusLabels } from '@/lib/orders'
 import { Icon } from '@/app/components/icons'
-import { formatSomoni } from '@/lib/pricing'
 const pageSize = 24
 const steps: OrderStatus[] = ['draft','waiting','received','ordered','completed']
 const dateFormatter = new Intl.DateTimeFormat('ru', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})
@@ -18,7 +16,6 @@ export default function DashboardPage() {
   const [page, setPage] = useState(0)
   const [total, setTotal] = useState(0)
   const [stats, setStats] = useState({active:0, received:0, completed:0})
-  const [finance, setFinance] = useState<FinanceSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
@@ -50,7 +47,7 @@ export default function DashboardPage() {
     }
     void load()
     const refresh = () => { if (document.visibilityState === 'visible') void load(true) }
-    const timer = setInterval(refresh,15000)
+    const timer = setInterval(refresh,60000)
     window.addEventListener('focus',refresh)
     return () => { controller.abort();clearInterval(timer);window.removeEventListener('focus',refresh) }
   }, [status, search, page, refreshKey])
@@ -62,11 +59,9 @@ export default function DashboardPage() {
         supabase.from('buyer_orders').select('id',{count:'exact',head:true}).is('deleted_at',null).neq('status','completed'),
         supabase.from('buyer_orders').select('id',{count:'exact',head:true}).is('deleted_at',null).eq('status','received'),
         supabase.from('buyer_orders').select('id',{count:'exact',head:true}).is('deleted_at',null).eq('status','completed'),
-        supabase.rpc('buyer_finance_summary'),
       ])
       if (!live) return
       if (results.slice(0,3).every(r => !r.error)) setStats({active:results[0].count ?? 0,received:results[1].count ?? 0,completed:results[2].count ?? 0})
-      if (!results[3].error && results[3].data?.[0]) setFinance(results[3].data[0] as FinanceSummary)
     }
     void loadStats()
     const refresh = () => {if (document.visibilityState === 'visible') void loadStats()}
@@ -81,9 +76,8 @@ export default function DashboardPage() {
     else {setRefreshKey(key => key + 1);setPage(0)}
   }
   return <div>
-    <div className="dashboard-heading"><div><p className="eyebrow mb-3">Ваше рабочее пространство</p><h1 className="page-title">Заказы. Всё на месте.</h1><p className="subtitle mt-3">Меньше переписок. Больше ясности.</p></div><Link href="/orders/new" className="btn btn-primary"><Icon name="plus" size={18}/><span>Новый заказ</span></Link></div>
-    <WalletOverview/><section className="summary-strip" aria-label="Сводка заказов"><div className="summary-item"><span>В работе</span><strong>{stats.active}</strong></div><div className="summary-item"><span>Готовы к закупке</span><strong style={{color:'var(--accent)'}}>{stats.received}</strong></div><div className="summary-item"><span>Завершено</span><strong>{stats.completed}</strong></div></section>
-    <section aria-labelledby="finance-title"><div className="mb-3 flex items-center justify-between"><div><p className="eyebrow">Финансы</p><h2 id="finance-title" className="mt-1 text-xl font-semibold tracking-tight">Расчёт подтверждённых заказов</h2></div><span className="order-id">{finance?.confirmed_orders ?? 0} подтверждённых</span></div><div className="finance-card"><div className="finance-metric"><span>Сумма заказов</span><strong>{formatSomoni(finance?.revenue ?? 0)}</strong></div><div className="finance-metric"><span>Расчётные затраты</span><strong>{formatSomoni(finance?.spent ?? 0)}</strong></div><div className="finance-metric earned"><span>Ожидаемая прибыль</span><strong>{formatSomoni(finance?.earned ?? 0)}</strong></div></div>{finance && <p className="-mt-4 mb-7 text-xs text-neutral-500">По заказам этого месяца: ожидаемая прибыль {formatSomoni(finance.month_earned)}, расчётные затраты {formatSomoni(finance.month_spent)}</p>}</section>
+    <div className="dashboard-heading"><div><p className="eyebrow mb-3">Заказы и клиенты</p><h1 className="page-title">Моя работа</h1><p className="subtitle mt-3">Все подборки, статусы и подтверждения.</p></div><Link href="/orders/new" className="btn btn-primary"><Icon name="plus" size={18}/><span>Новый заказ</span></Link></div>
+    <section className="summary-strip" aria-label="Сводка заказов"><div className="summary-item"><span>В работе</span><strong>{stats.active}</strong></div><div className="summary-item"><span>Готовы к закупке</span><strong style={{color:'var(--accent)'}}>{stats.received}</strong></div><div className="summary-item"><span>Завершено</span><strong>{stats.completed}</strong></div></section>
     <div className="search-field"><Icon name="search" size={18}/><input aria-label="Поиск заказов" placeholder="Найти по названию или номеру" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button aria-label="Очистить поиск" className="text-button" onClick={() => setQuery('')}>×</button>}</div>
     <div className="filter-bar" aria-label="Фильтр по статусу">{(['all',...steps,'deleted'] as const).map(value => <button key={value} className="filter-pill" aria-pressed={status === value} onClick={() => {setStatus(value);setPage(0)}}>{value === 'all' ? 'Все заказы' : value === 'deleted' ? 'Корзина' : statusLabels[value]}</button>)}</div>
     {error && <p role="alert" className="notice mb-5">{error} <button onClick={() => setRefreshKey(k => k + 1)} className="underline">Повторить</button></p>}
