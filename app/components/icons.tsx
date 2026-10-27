@@ -1,5 +1,10 @@
 import type { CSSProperties } from 'react'
 const paths = {
+  up: 'M12 19V5m-6 6 6-6 6 6',
+  down: 'M12 5v14m-6-6 6 6 6-6',
+  transfer: 'M4 8h16m-4-4 4 4-4 4M20 16H4m4-4-4 4 4 4',
+  people: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M17 3a4 4 0 0 1 0 8M22 21v-2a4 4 0 0 0-3-3.87M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0',
+  chart: 'M4 20h16M7 16v-4M12 16V4M17 16V8',
   plus: 'M12 5v14M5 12h14',
   bag: 'M5 7h14l1 14H4L5 7ZM9 7V5a3 3 0 0 1 6 0v2',
   search: 'm21 21-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',

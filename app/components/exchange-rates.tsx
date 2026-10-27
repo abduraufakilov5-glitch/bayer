@@ -1,6 +1,9 @@
 'use client'
 import {
   createContext,
+  useCallback,
+  useMemo,
+  useRef,
   useContext,
   useEffect,
   useState,
@@ -24,7 +27,7 @@ type RatesState = {
   setManualCny: (v: string) => void
   setManualUsd: (v: string) => void
   error: string
-  refresh: () => Promise<void>
+  refresh: (force?: boolean) => Promise<void>
 }
 const Context = createContext<RatesState | null>(null)
 export function RatesProvider({ children }: { children: ReactNode }) {
@@ -33,56 +36,68 @@ export function RatesProvider({ children }: { children: ReactNode }) {
     [mode, setMode] = useState('alif-visa')
   const [manualCny, setManualCny] = useState(String(CNY_TO_TJS)),
     [manualUsd, setManualUsd] = useState(String(USD_TO_TJS))
-  async function refresh() {
-    try {
-      const r = await fetch('/api/exchange-rates')
-      const data = await r.json()
-      setRates(data.rates ?? null)
-      setError(
-        data.error ??
-          (data.stale
-            ? 'Показан последний опубликованный курс Visa Алиф.'
-            : ''),
-      )
-    } catch {
-      setError('Нет связи с Visa Алиф. Выберите ручной курс.')
-    }
-  }
-  // Fetch state comes from the asynchronous network response.
+  const request = useRef<Promise<void> | null>(null),
+    lastRequest = useRef(0)
+  const refresh = useCallback((force = false): Promise<void> => {
+    if (request.current) return request.current
+    if (!force && Date.now() - lastRequest.current < 300000)
+      return Promise.resolve()
+    lastRequest.current = Date.now()
+    request.current = (async () => {
+      try {
+        const response = await fetch('/api/exchange-rates'),
+          data = await response.json()
+        setRates((previous) =>
+          JSON.stringify(previous) === JSON.stringify(data.rates ?? null)
+            ? previous
+            : (data.rates ?? null),
+        )
+        setError(
+          data.error ??
+            (data.stale
+              ? 'Показан последний опубликованный курс Visa Алиф.'
+              : ''),
+        )
+      } catch {
+        setError('Не удалось получить курсы Visa Алиф. Доступен ручной ввод.')
+      } finally {
+        request.current = null
+      }
+    })()
+    return request.current
+  }, [])
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh()
-    const timer = setInterval(() => void refresh(), 3600000)
-    const focus = () => void refresh()
+    const focus = () => {
+      if (document.visibilityState === 'visible') void refresh()
+    }
+    const timer = setInterval(focus, 3600000)
     window.addEventListener('focus', focus)
     return () => {
       clearInterval(timer)
       window.removeEventListener('focus', focus)
     }
-  }, [])
+  }, [refresh])
   const cny = mode === 'manual' ? parseRate(manualCny) : (rates?.cny ?? NaN),
     usd = mode === 'manual' ? parseRate(manualUsd) : (rates?.usd ?? NaN)
-  return (
-    <Context
-      value={{
-        rates,
-        cny,
-        usd,
-        ready:
-          Number.isFinite(cny) && cny > 0 && Number.isFinite(usd) && usd > 0,
-        mode,
-        setMode,
-        manualCny,
-        manualUsd,
-        setManualCny,
-        setManualUsd,
-        error,
-        refresh,
-      }}
-    >
-      {children}
-    </Context>
+  const value = useMemo(
+    () => ({
+      rates,
+      cny,
+      usd,
+      ready: Number.isFinite(cny) && cny > 0 && Number.isFinite(usd) && usd > 0,
+      mode,
+      setMode,
+      manualCny,
+      manualUsd,
+      setManualCny,
+      setManualUsd,
+      error,
+      refresh,
+    }),
+    [rates, cny, usd, mode, manualCny, manualUsd, error, refresh],
   )
+  return <Context value={value}>{children}</Context>
 }
 export function useRates() {
   const context = useContext(Context)
@@ -149,7 +164,7 @@ export function RateSettings() {
           <button
             type="button"
             className="underline"
-            onClick={() => void r.refresh()}
+            onClick={() => void r.refresh(true)}
           >
             Повторить
           </button>

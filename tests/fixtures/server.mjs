@@ -1,6 +1,6 @@
 // Loopback-only HTTP fixture for browser tests. No real accounts or orders.
 import { createServer } from 'node:http'
-import { walletFixture } from './wallet.mjs'
+import { walletFixture, resetWalletFixture } from './wallet.mjs'
 const owner = '33333333-3333-4333-8333-333333333333'
 const token = '11111111-1111-4111-8111-111111111111'
 const productId = '22222222-2222-4222-8222-222222222222'
@@ -23,6 +23,7 @@ createServer(async (req, res) => {
  let data = {}
  if (url.pathname === '/auth/v1/user') data = user
  else if (url.pathname === '/auth/v1/token') {
+   await resetWalletFixture()
    orders[0].title = 'Осенняя закупка'; orders[0].deleted_at = null
    data = { access_token: jwt, refresh_token: 'fixture-refresh', token_type: 'bearer', expires_in:3600, user }
  }

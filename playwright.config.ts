@@ -8,6 +8,7 @@ export default defineConfig({
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'] } },
     { name: 'mobile', use: { ...devices['iPhone 13'], defaultBrowserType: 'chromium' } },
+    { name: 'iphone-safari', grep: /wallet separates/, use: { ...devices['iPhone 13'] } },
   ],
   webServer: [
     { command: 'node tests/fixtures/server.mjs', port: 54329, reuseExistingServer: false },
