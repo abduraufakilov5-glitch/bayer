@@ -22,7 +22,7 @@ await db.query('insert into auth.users values($1)',[owner])
 await db.exec('set role authenticated')
 await db.query("select set_config('request.jwt.claim.sub',$1,false)",[owner])
 const today = new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Dushanbe',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())
-await db.query("insert into wallet_rates(owner_id,usd,cny,rub,date,fetched_at,source) values($1,9.224,1.3832,.1144,$2,now(),'https://nbt.tj/ru/kurs/kurs.php')",[owner,today])
+await db.query("insert into wallet_rates(owner_id,usd,cny,rub,date,fetched_at,source) values($1,9.25,1.3933,.1159,$2,now(),'https://alif.tj/api/rates')",[owner,today])
 const tables=new Set(['wallet_accounts','wallet_entries','wallet_debts','wallet_order_settings','wallet_rates'])
 const rpcs=new Set(['wallet_snapshot','wallet_record_loan','wallet_realize_plan','wallet_replace_entry','wallet_cancel_debt'])
 export async function walletFixture(req,res,url) {

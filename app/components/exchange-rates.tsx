@@ -7,7 +7,11 @@ import {
   type ReactNode,
 } from 'react'
 import { CNY_TO_TJS, USD_TO_TJS } from '@/lib/pricing'
-import { NBT_SOURCE, parseRate, type ExchangeRates } from '@/lib/exchange-rates'
+import {
+  ALIF_VISA_SOURCE,
+  parseRate,
+  type ExchangeRates,
+} from '@/lib/exchange-rates'
 type RatesState = {
   rates: ExchangeRates | null
   cny: number
@@ -26,7 +30,7 @@ const Context = createContext<RatesState | null>(null)
 export function RatesProvider({ children }: { children: ReactNode }) {
   const [rates, setRates] = useState<ExchangeRates | null>(null),
     [error, setError] = useState(''),
-    [mode, setMode] = useState('nbt')
+    [mode, setMode] = useState('alif-visa')
   const [manualCny, setManualCny] = useState(String(CNY_TO_TJS)),
     [manualUsd, setManualUsd] = useState(String(USD_TO_TJS))
   async function refresh() {
@@ -36,10 +40,12 @@ export function RatesProvider({ children }: { children: ReactNode }) {
       setRates(data.rates ?? null)
       setError(
         data.error ??
-          (data.stale ? 'Показан последний опубликованный курс НБТ.' : ''),
+          (data.stale
+            ? 'Показан последний опубликованный курс Visa Алиф.'
+            : ''),
       )
     } catch {
-      setError('Нет связи с НБТ. Выберите ручной курс.')
+      setError('Нет связи с Visa Алиф. Выберите ручной курс.')
     }
   }
   // Fetch state comes from the asynchronous network response.
@@ -94,7 +100,7 @@ export function RateSettings() {
           value={r.mode}
           onChange={(e) => r.setMode(e.target.value)}
         >
-          <option value="nbt">Курс НБТ</option>
+          <option value="alif-visa">Visa Алиф · продажа</option>
           <option value="manual">Ручной курс</option>
         </select>
       </div>
@@ -127,15 +133,15 @@ export function RateSettings() {
       <p className="subtitle mt-3 text-xs">
         Автокарго: 3,50 $/кг · средний вес: 120 г.{' '}
         <a
-          href={NBT_SOURCE}
+          href={ALIF_VISA_SOURCE}
           target="_blank"
           rel="noreferrer"
           className="underline"
         >
-          Источник: НБТ
+          Источник: Алиф · Visa · продажа
         </a>
-        . Курс обновляется ежедневно при работе в приложении. Цена фиксируется
-        при сохранении товара.
+        . Обновление — каждый час при работе в приложении. Цена фиксируется при
+        сохранении товара. Фактический курс списания можно указать вручную.
       </p>
       {r.error && (
         <p role="status" className="mt-2 text-xs">

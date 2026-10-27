@@ -2,7 +2,7 @@ import type { Product, SubmissionItem } from './types'
 
 export const CNY_TO_TJS = 1.45
 export const CARGO_PER_KG_USD = 3.5
-// Explicit dated fallback; new orders can use daily NBT or a manual rate.
+// Explicit dated manual default; automatic quotes come from Visa Alif.
 export const USD_TO_TJS = 9.224
 export const CARGO_PER_KG_TJS = CARGO_PER_KG_USD * USD_TO_TJS
 export const DEFAULT_WEIGHT_GRAMS = 120
@@ -16,7 +16,10 @@ export function calculateClientPrice(priceCny: number, workPriceSomoni: number =
 }
 
 export function roundMoney(value: number) {
-  return Math.round((value + Number.EPSILON) * 100) / 100
+  // Scale the tolerance with the value: 69.665 is slightly below its decimal
+  // representation in binary. Round half cents consistently in either direction.
+  const scaled = Math.abs(value * 100)
+  return Math.sign(value) * Math.round(scaled + Number.EPSILON * scaled * 2) / 100
 }
 
 export function formatSomoni(value: number) {

@@ -9,7 +9,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { RateSettings, useRates } from '@/app/components/exchange-rates'
 import { createClient } from '@/lib/supabase/client'
 import type { Order, OrderStatus, Product, Submission } from '@/lib/types'
-import { calculateCargo, calculateClientPrice, calculateOrderFinances, DEFAULT_WEIGHT_GRAMS, formatSomoni } from '@/lib/pricing'
+import { calculateCargo, calculateClientPrice, calculateOrderFinances, DEFAULT_WEIGHT_GRAMS, formatSomoni, roundMoney } from '@/lib/pricing'
 
 import { PricingFields, type PricingDraft } from '@/app/components/pricing-fields'
 import { Icon } from '@/app/components/icons'
@@ -161,7 +161,7 @@ export default function OrderDetailPage() {
 
   async function saveProduct(product: Product) {
     if (order?.status !== 'draft' || busy) return
-    if (!rates.ready) {setError('Укажите курс или дождитесь НБТ.');return}
+    if (!rates.ready) {setError('Укажите курс или дождитесь Visa Алиф.');return}
     const cny = draft.priceCny.trim() ? parseDecimal(draft.priceCny) : null
     const work = parseDecimal(draft.workPrice), weight = Number(draft.weightGrams)
     const price = cny == null ? product.price : calculateClientPrice(cny,work,weight,rates.cny,rates.usd)
@@ -174,7 +174,7 @@ export default function OrderDetailPage() {
       name: draft.name.trim(),
       price,
       price_cny: cny,
-      purchase_cost_tjs:cny==null?null:Math.round(cny*rates.cny*100)/100,cny_rate:rates.cny,usd_rate:rates.usd,
+      purchase_cost_tjs:cny==null?null:roundMoney(cny*rates.cny),cny_rate:rates.cny,usd_rate:rates.usd,
       cargo_cost: calculateCargo(weight,rates.usd),
       work_price_somoni: work,
       weight_grams: weight,

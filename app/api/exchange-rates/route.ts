@@ -1,5 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
-import { dushanbeDate, NBT_SOURCE, parseNbtHtml } from '@/lib/exchange-rates'
+import {
+  dushanbeDate,
+  ALIF_VISA_SOURCE,
+  isFreshVisaRates,
+  parseAlifVisaRates,
+} from '@/lib/exchange-rates'
 export async function GET() {
   const supabase = await createClient()
   const {
@@ -12,26 +17,28 @@ export async function GET() {
     .select('*')
     .eq('owner_id', user.id)
     .maybeSingle()
-  const cached = stored
-    ? {
-        ...stored,
-        usd: Number(stored.usd),
-        cny: Number(stored.cny),
-        rub: Number(stored.rub),
-        date: String(stored.date).slice(0, 10),
-      }
-    : null
-  if (cached && dushanbeDate(new Date(cached.fetched_at)) === dushanbeDate())
-    return Response.json({ rates: cached, stale: cached.date < dushanbeDate() })
+  const cached =
+    stored?.source === ALIF_VISA_SOURCE
+      ? {
+          ...stored,
+          usd: Number(stored.usd),
+          cny: Number(stored.cny),
+          rub: Number(stored.rub),
+          date: String(stored.date).slice(0, 10),
+        }
+      : null
+  if (cached && isFreshVisaRates(cached))
+    return Response.json({
+      rates: cached,
+      stale: cached.date < dushanbeDate(),
+    })
   try {
-    // Request today's rates explicitly: the default NBT page can already show tomorrow.
-    const response = await fetch(
-      `${NBT_SOURCE}?date=${dushanbeDate().split('-').reverse().join('.')}`,
-      { cache: 'no-store', signal: AbortSignal.timeout(12000) },
-    )
-    if (!response.ok) throw new Error('НБТ недоступен')
-    const rates = parseNbtHtml(await response.text())
-    if (rates.date > dushanbeDate()) throw new Error('НБТ вернул будущую дату')
+    const response = await fetch(ALIF_VISA_SOURCE, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(12000),
+    })
+    if (!response.ok) throw new Error('Алиф недоступен')
+    const rates = parseAlifVisaRates(await response.json())
     const { error } = await supabase
       .from('wallet_rates')
       .upsert({ ...rates, owner_id: user.id })
@@ -43,7 +50,7 @@ export async function GET() {
         rates: cached ?? null,
         stale: true,
         error:
-          'Не удалось обновить НБТ. Используйте последний сохранённый или ручной курс.',
+          'Не удалось обновить курс Visa Алиф. Используйте последний сохранённый курс Visa с указанной датой или введите курс вручную.',
       },
       { status: cached ? 200 : 503 },
     )
