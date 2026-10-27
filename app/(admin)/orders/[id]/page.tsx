@@ -1,10 +1,12 @@
 'use client'
 
 import Link from 'next/link'
+import { WalletOverview } from '@/app/components/wallet-overview'
 import Image from 'next/image'
 import { parseDecimal, validPricing, safeSupplierUrl } from '@/lib/validation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { RateSettings, useRates } from '@/app/components/exchange-rates'
 import { createClient } from '@/lib/supabase/client'
 import type { Order, OrderStatus, Product, Submission } from '@/lib/types'
 import { calculateCargo, calculateClientPrice, calculateOrderFinances, DEFAULT_WEIGHT_GRAMS, formatSomoni } from '@/lib/pricing'
@@ -19,6 +21,7 @@ function formatDate(value: string) {
 }
 
 export default function OrderDetailPage() {
+  const rates = useRates()
   const params = useParams<{ id: string }>()
   const router = useRouter()
   const id = params.id
@@ -158,9 +161,10 @@ export default function OrderDetailPage() {
 
   async function saveProduct(product: Product) {
     if (order?.status !== 'draft' || busy) return
+    if (!rates.ready) {setError('Укажите курс или дождитесь НБТ.');return}
     const cny = draft.priceCny.trim() ? parseDecimal(draft.priceCny) : null
     const work = parseDecimal(draft.workPrice), weight = Number(draft.weightGrams)
-    const price = cny == null ? product.price : calculateClientPrice(cny,work,weight)
+    const price = cny == null ? product.price : calculateClientPrice(cny,work,weight,rates.cny,rates.usd)
     if (!validPricing(draft.name,cny ?? 0,work,weight) || (!!draft.supplier_url.trim() && !safeSupplierUrl(draft.supplier_url))) {
       setError('Проверьте название, цену и ссылку поставщика.'); return
     }
@@ -170,7 +174,8 @@ export default function OrderDetailPage() {
       name: draft.name.trim(),
       price,
       price_cny: cny,
-      cargo_cost: calculateCargo(weight),
+      purchase_cost_tjs:cny==null?null:Math.round(cny*rates.cny*100)/100,cny_rate:rates.cny,usd_rate:rates.usd,
+      cargo_cost: calculateCargo(weight,rates.usd),
       work_price_somoni: work,
       weight_grams: weight,
       supplier_url: safeSupplierUrl(draft.supplier_url),
@@ -206,21 +211,21 @@ export default function OrderDetailPage() {
         {item.product_id && imageUrls[item.product_id] ? <Image unoptimized width={224} height={224} src={imageUrls[item.product_id]} alt="Фото выбранного товара" className="h-40 w-40 shrink-0 rounded-xl bg-neutral-100 object-contain sm:h-56 sm:w-56"/> : <div role="img" aria-label="Фото товара недоступно" className="flex h-40 w-40 shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-neutral-400 sm:h-56 sm:w-56"><Icon name="photo" size={32}/></div>}
         <div className="min-w-0 flex-1"><span className="text-xl font-semibold">× {item.quantity}</span>{item.price != null && <div className="mt-2 text-xs text-neutral-500">{formatSomoni(item.price)} за шт.</div>}</div>
       </div>)}</div><div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 pt-5"><span className="text-sm text-neutral-500">Всего {submission.total_quantity} шт.</span>{submission.items.every(item => item.price != null) && <strong className="text-2xl font-semibold tracking-tight">{formatSomoni(submissionTotal)}</strong>}</div></section>}
-    {orderFinances && <section aria-labelledby="order-finance-title">
+    <WalletOverview orderId={id}/>{orderFinances && <section aria-labelledby="order-finance-title">
       <h2 id="order-finance-title" className="mb-4 text-xl font-semibold tracking-tight">Расчёт этого заказа</h2>
       <div className="finance-card">
         <div className="finance-metric"><span>Закупка товаров</span><strong>{orderFinances.purchase == null ? '—' : formatSomoni(orderFinances.purchase)}</strong></div>
         <div className="finance-metric"><span>Карго</span><strong>{orderFinances.cargo == null ? '—' : formatSomoni(orderFinances.cargo)}</strong></div>
         <div className={'finance-metric' + (orderFinances.earnings != null && orderFinances.earnings >= 0 ? ' earned' : '')}><span>Вам останется</span><strong>{orderFinances.earnings == null ? '—' : formatSomoni(orderFinances.earnings)}</strong></div>
       </div>
-      <p className="-mt-3 text-xs leading-5 text-neutral-500">Только выбранные клиентом товары с учётом количества. Закупка по курсу ¥1 = 1,4 смн. Карго по тарифам товаров. Остаток = сумма клиента − закупка − карго.</p>
+      <p className="-mt-3 text-xs leading-5 text-neutral-500">Только выбранные клиентом товары с учётом количества. Закупка по зафиксированному курсу товара. Карго по тарифам товаров. Остаток = сумма клиента − закупка − карго.</p>
       {(orderFinances.purchase == null || orderFinances.cargo == null || orderFinances.earnings == null) && <p className="mt-2 text-xs text-neutral-500">Для полного расчёта не хватает закупочной цены, стоимости карго или цены клиента у некоторых товаров.</p>}
     </section>}
     <div className="flex items-center justify-between"><h2 className="text-xl font-semibold tracking-tight">Товары подборки</h2><span className="order-id">{products.length} позиций</span></div>
     {order.status !== 'draft' && <p className="text-xs text-neutral-500">Заказ опубликован: состав и цены зафиксированы.</p>}
     <div className="space-y-4">{products.map(product => <article key={product.id} className="panel product-editor"><div className="product-editor-body">
       {imageUrls[product.id] ? <Image unoptimized width={400} height={400} src={imageUrls[product.id]} alt={product.name} className="product-preview"/> : <div className="product-preview flex items-center justify-center text-neutral-300"><Icon name="photo" size={32}/></div>}
-      <div className="min-w-0">{editing === product.id ? <div><label className="field">Название товара<input aria-label="Название товара" maxLength={200} value={draft.name} onChange={e => setDraft(d => ({...d,name:e.target.value}))}/></label><PricingFields value={draft} onChange={patch => setDraft(d => ({...d,...patch}))}/>{draft.priceCny.trim() === '' && product.price != null && <p className="mt-2 text-xs text-neutral-500">Сохранится прежняя цена {formatSomoni(product.price)}. Укажите закупку, чтобы пересчитать.</p>}<label className="field mt-4">Ссылка поставщика<input aria-label="Ссылка поставщика" value={draft.supplier_url} onChange={e => setDraft(d => ({...d,supplier_url:e.target.value}))}/></label><div className="mt-4 flex gap-2"><button disabled={busy} onClick={() => saveProduct(product)} className="btn btn-primary">Сохранить</button><button disabled={busy} onClick={() => setEditing(null)} className="btn btn-secondary">Отмена</button></div></div> : <><h3 className="text-lg font-semibold tracking-tight break-words">{product.name}</h3><p className="mt-2 text-xl font-semibold tracking-tight">{product.price == null ? 'Без цены' : formatSomoni(product.price)}</p>{product.price_cny != null && <p className="mt-3 text-xs leading-5 text-neutral-500">Закупка ¥{product.price_cny}<br/>Доставка {formatSomoni(product.cargo_cost ?? calculateCargo(product.weight_grams ?? DEFAULT_WEIGHT_GRAMS))} · работа {formatSomoni(product.work_price_somoni ?? 0)}<br/>{product.weight_grams ?? DEFAULT_WEIGHT_GRAMS} г</p>}{safeSupplierUrl(product.supplier_url) && <a href={safeSupplierUrl(product.supplier_url)!} target="_blank" rel="noreferrer" className="mt-3 inline-block text-xs text-blue-600">Открыть поставщика ↗</a>}{order.status === 'draft' && <div className="mt-3 flex gap-2"><button onClick={() => startEditing(product)} className="text-button">Изменить</button><button disabled={busy} onClick={() => deleteProduct(product)} className="text-button danger">Удалить</button></div>}</>}</div>
+      <div className="min-w-0">{editing === product.id ? <div><label className="field">Название товара<input aria-label="Название товара" maxLength={200} value={draft.name} onChange={e => setDraft(d => ({...d,name:e.target.value}))}/></label><RateSettings/><PricingFields value={draft} onChange={patch => setDraft(d => ({...d,...patch}))}/>{draft.priceCny.trim() === '' && product.price != null && <p className="mt-2 text-xs text-neutral-500">Сохранится прежняя цена {formatSomoni(product.price)}. Укажите закупку, чтобы пересчитать.</p>}<label className="field mt-4">Ссылка поставщика<input aria-label="Ссылка поставщика" value={draft.supplier_url} onChange={e => setDraft(d => ({...d,supplier_url:e.target.value}))}/></label><div className="mt-4 flex gap-2"><button disabled={busy} onClick={() => saveProduct(product)} className="btn btn-primary">Сохранить</button><button disabled={busy} onClick={() => setEditing(null)} className="btn btn-secondary">Отмена</button></div></div> : <><h3 className="text-lg font-semibold tracking-tight break-words">{product.name}</h3><p className="mt-2 text-xl font-semibold tracking-tight">{product.price == null ? 'Без цены' : formatSomoni(product.price)}</p>{product.price_cny != null && <p className="mt-3 text-xs leading-5 text-neutral-500">Закупка ¥{product.price_cny}<br/>Доставка {formatSomoni(product.cargo_cost ?? calculateCargo(product.weight_grams ?? DEFAULT_WEIGHT_GRAMS))} · работа {formatSomoni(product.work_price_somoni ?? 0)}<br/>{product.weight_grams ?? DEFAULT_WEIGHT_GRAMS} г</p>}{safeSupplierUrl(product.supplier_url) && <a href={safeSupplierUrl(product.supplier_url)!} target="_blank" rel="noreferrer" className="mt-3 inline-block text-xs text-blue-600">Открыть поставщика ↗</a>}{order.status === 'draft' && <div className="mt-3 flex gap-2"><button onClick={() => startEditing(product)} className="text-button">Изменить</button><button disabled={busy} onClick={() => deleteProduct(product)} className="text-button danger">Удалить</button></div>}</>}</div>
     </div></article>)}</div>
   </div>
 }

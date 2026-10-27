@@ -39,8 +39,8 @@ export default function LoginPage() {
   }
 
   return <main className="login-page"><form onSubmit={handleSubmit} className="panel login-card">
-    <div className="login-logo"><span className="brand-mark" style={{width:52,height:52,borderRadius:17,fontSize:24,fontWeight:600}}>B</span></div>
-    <div className="text-center mb-8"><p className="eyebrow mb-3">Bayer</p><h1 className="text-3xl font-semibold tracking-tight">Всё начинается здесь.</h1><p className="subtitle mt-3">Ваши подборки, клиенты и заказы.<br/>В одном спокойном пространстве.</p></div>
+    <div className="login-logo"><span className="brand-mark" style={{width:52,height:52,borderRadius:17,fontSize:24,fontWeight:600}}>М</span></div>
+    <div className="text-center mb-8"><p className="eyebrow mb-3">Мой баланс</p><h1 className="text-3xl font-semibold tracking-tight">Всё начинается здесь.</h1><p className="subtitle mt-3">Ваши деньги, клиенты и заказы.<br/>В одном спокойном пространстве.</p></div>
     {!configured && <p role="status" className="notice mb-5">Добавьте ключи Supabase в настройки приложения.</p>}
     <div className="space-y-5"><label className="field">Email<input aria-label="Email" value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="name@example.com" autoComplete="email" required/></label><label className="field">Пароль<input aria-label="Пароль" value={password} onChange={e => setPassword(e.target.value)} type="password" placeholder="Ваш пароль" autoComplete="current-password" required/></label></div>
     {error && <p role="alert" className="notice mt-5">{error}</p>}

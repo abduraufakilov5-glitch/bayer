@@ -96,7 +96,7 @@ test('invalid token shows friendly 404 and private pages redirect to login', asy
   await expect(page).toHaveURL(/login/)
 })
 
-test('photo order preserves original price formula, rolls back failed save and retries', async ({page}) => {
+test('photo order snapshots daily rates and new cargo defaults, rolls back failed save and retries', async ({page}) => {
   await page.goto('/login')
   await page.getByLabel('Email', {exact:true}).fill('buyer@example.test')
   await page.getByLabel('Пароль', {exact:true}).fill('fixture-password')
@@ -113,10 +113,10 @@ test('photo order preserves original price formula, rolls back failed save and r
   await page.getByRole('button', {name:'Применить ко всем',exact:true}).click()
   await expect(page.getByLabel('Вес, г',{exact:true})).toHaveValue('100')
   await page.getByRole('button', {name:'Отменить',exact:true}).click()
-  await expect(page.getByLabel('Вес, г',{exact:true})).toHaveValue('80')
-  await page.getByLabel('Общий вес, г', {exact:true}).fill('80')
+  await expect(page.getByLabel('Вес, г',{exact:true})).toHaveValue('120')
+  await page.getByLabel('Общий вес, г', {exact:true}).fill('120')
   await page.getByRole('button', {name:'Применить ко всем',exact:true}).click()
-  await expect(page.getByText('57,1 смн', {exact:true})).toBeVisible()
+  await expect(page.getByText('57,97 смн', {exact:true})).toBeVisible()
   let rolledBack = false
   let fail = true
   await page.route('**/rest/v1/buyer_orders*', async route => {
@@ -127,10 +127,14 @@ test('photo order preserves original price formula, rolls back failed save and r
   await page.route('**/storage/v1/object/**', route => route.fulfill({status:200,json:{Key:'fixture'}}))
   await page.route('**/rest/v1/buyer_products*', async route => {
     if (route.request().method() !== 'POST') { await route.continue(); return }
-    expect(route.request().postDataJSON().price).toBe(57.1)
+    expect(route.request().postDataJSON().price).toBe(57.97)
     expect(route.request().postDataJSON().price_cny).toBe(35.5)
+    expect(route.request().postDataJSON().cny_rate).toBe(1.3832)
+    expect(route.request().postDataJSON().usd_rate).toBe(9.224)
+    expect(route.request().postDataJSON().cargo_cost).toBe(3.87)
+    expect(route.request().postDataJSON().purchase_cost_tjs).toBe(49.1)
     expect(route.request().postDataJSON().work_price_somoni).toBe(5)
-    expect(route.request().postDataJSON().weight_grams).toBe(80)
+    expect(route.request().postDataJSON().weight_grams).toBe(120)
     expect(route.request().postDataJSON().name).toBe('Товар')
     await route.fulfill({status: fail ? 500 : 201, json:fail ? {message:'fixture failure'} : {}})
   })
@@ -180,14 +184,14 @@ test('buyer edits calculated price and layout fits phone and desktop', async ({p
   await page.getByLabel('Цена в юанях',{exact:true}).fill('50')
   await page.getByLabel('Вес, г',{exact:true}).fill('100')
   await page.getByLabel('Работа, смн',{exact:true}).fill('7')
-  await expect(page.getByText('80 смн',{exact:true})).toBeVisible()
+  await expect(page.getByText('79,39 смн',{exact:true})).toBeVisible()
   let saved = false
   await page.route('**/rest/v1/buyer_products*',async route => {
     if (route.request().method() !== 'PATCH') {await route.continue();return}
     const body = route.request().postDataJSON()
-    expect(body.price).toBe(80)
+    expect(body.price).toBe(79.39)
     expect(body.price_cny).toBe(50)
-    expect(body.cargo_cost).toBe(3)
+    expect(body.cargo_cost).toBe(3.23)
     expect(body.work_price_somoni).toBe(7)
     saved = true
     await route.fulfill({status:204})

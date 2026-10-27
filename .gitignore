@@ -11,3 +11,6 @@ playwright-report/
 test-results/
 *.tsbuildinfo
 supabase/.temp/
+
+.playwright-cli/
+output/

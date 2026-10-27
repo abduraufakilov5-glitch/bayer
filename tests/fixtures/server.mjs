@@ -1,5 +1,6 @@
 // Loopback-only HTTP fixture for browser tests. No real accounts or orders.
 import { createServer } from 'node:http'
+import { walletFixture } from './wallet.mjs'
 const owner = '33333333-3333-4333-8333-333333333333'
 const token = '11111111-1111-4111-8111-111111111111'
 const productId = '22222222-2222-4222-8222-222222222222'
@@ -18,6 +19,7 @@ createServer(async (req, res) => {
  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
  const url = new URL(req.url, 'http://127.0.0.1:54329')
  if (url.pathname.endsWith('/photo.svg')) { res.setHeader('Content-Type','image/svg+xml'); res.end('<svg xmlns="http://www.w3.org/2000/svg" width="480" height="600"><rect width="480" height="600" fill="#ebe1d5"/><path d="M60 100h360v400H60z" fill="#82604e"/><path d="m60 100 360 400M420 100 60 500" stroke="#dfcbb4" stroke-width="40"/></svg>'); return }
+ if (await walletFixture(req,res,url)) return
  let data = {}
  if (url.pathname === '/auth/v1/user') data = user
  else if (url.pathname === '/auth/v1/token') {

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { parseDecimal, validPricing, safeSupplierUrl, MAX_ORDER_PRODUCTS } from '@/lib/validation'
+import { RateSettings, useRates } from '@/app/components/exchange-rates'
 import { createClient } from '@/lib/supabase/client'
 import { calculateCargo, calculateClientPrice, DEFAULT_WEIGHT_GRAMS, formatSomoni } from '@/lib/pricing'
 import { PricingFields, type PricingDraft } from '@/app/components/pricing-fields'
@@ -15,6 +16,7 @@ import { signProductImages, type ImageCache } from '@/lib/product-images'
 type DraftProduct = PricingDraft & { id: string; name: string; supplierUrl: string; file: File | null; preview: string; catalogProductId: string | null; imagePath: string | null }
 
 export default function NewOrderPage() {
+  const rates = useRates()
   const router = useRouter()
   const [title, setTitle] = useState('')
   const [products, setProducts] = useState<DraftProduct[]>([])
@@ -82,6 +84,7 @@ export default function NewOrderPage() {
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (savingRef.current) return
+    if (!rates.ready) {setError('Дождитесь курса НБТ или задайте ручной курс.');return}
     if (!title.trim() || !products.length || products.some(p => !p.name.trim() || (!p.file && !p.imagePath) || !validPricing(p.name, p.priceCny.trim() ? parseDecimal(p.priceCny) : 0, parseDecimal(p.workPrice), Number(p.weightGrams)) || (p.supplierUrl.trim() && !safeSupplierUrl(p.supplierUrl)))) { setError('Добавьте фото и названия товаров. Проверьте цену и ссылку поставщика.'); return }
     savingRef.current = true; setSaving(true); setError(''); setProgress(0)
     const supabase = createClient()
@@ -114,7 +117,7 @@ export default function NewOrderPage() {
             catalogIds.push(catalogRow.id)
           }
           if (!path) throw new Error('Не найдено фото товара «' + product.name + '».')
-          const {error: productError} = await supabase.from('buyer_products').insert({order_id: orderId, catalog_product_id:catalogProductId, name: product.name.trim(), price: priceCny == null ? null : calculateClientPrice(priceCny,work,weight), price_cny: priceCny, work_price_somoni:work, weight_grams:weight, cargo_cost:calculateCargo(weight), supplier_url: safeSupplierUrl(product.supplierUrl), image_path: path, sort_order: start + offset})
+          const {error: productError} = await supabase.from('buyer_products').insert({order_id: orderId, catalog_product_id:catalogProductId, name: product.name.trim(), price: priceCny == null ? null : calculateClientPrice(priceCny,work,weight,rates.cny,rates.usd), price_cny: priceCny, purchase_cost_tjs:priceCny==null?null:Math.round(priceCny*rates.cny*100)/100, cny_rate:rates.cny, usd_rate:rates.usd, work_price_somoni:work, weight_grams:weight, cargo_cost:calculateCargo(weight,rates.usd), supplier_url: safeSupplierUrl(product.supplierUrl), image_path: path, sort_order: start + offset})
           if (productError) throw new Error('Не удалось сохранить товар «' + product.name + '».')
           setProgress(++done)
         }))
@@ -139,9 +142,9 @@ export default function NewOrderPage() {
   return <form onSubmit={submit} className="editor">
     <Link href="/dashboard" className="back-link"><Icon name="back" size={14}/>Все заказы</Link>
     <div className="editor-heading"><p className="eyebrow mb-3">Новая подборка</p><h1 className="page-title">Начнём с фотографий.</h1><p className="subtitle mt-3">Вы создаёте подборку. Клиент выбирает количество.</p></div>
-    <fieldset disabled={saving} className="editor-stack">
+    <fieldset disabled={saving} className="editor-stack"><RateSettings/>
       <section className="panel panel-padding"><label className="field">Название заказа<input aria-label="Название заказа" maxLength={140} required value={title} onChange={e => setTitle(e.target.value)} placeholder="Например: Подборка для Анны"/></label></section>
-      <section className="panel panel-padding catalog-picker"><div className="flex items-center justify-between gap-4"><button type="button" className="min-w-0 text-left" onClick={() => setCatalogOpen(value => !value)} aria-expanded={catalogOpen}><span className="eyebrow">Сохранённые товары</span><h2 className="mt-1 text-lg font-semibold">Выбрать из каталога</h2></button><Link href="/catalog" className="text-button">Весь каталог · {catalog.length}</Link></div>{catalogOpen && <div className="mt-5"><div className="search-field"><Icon name="search" size={17}/><input aria-label="Поиск в каталоге" value={catalogSearch} onChange={event => setCatalogSearch(event.target.value)} placeholder="Найти товар"/></div>{filteredCatalog.length ? <div className="catalog-picker-grid mt-4">{filteredCatalog.map(item => <button key={item.id} type="button" className="catalog-pick-card" onClick={() => addFromCatalog(item)}><span className="catalog-pick-photo">{catalogUrls[item.id] ? <Image unoptimized width={240} height={240} src={catalogUrls[item.id]} alt={item.name}/> : <Icon name="photo" size={24}/>}</span><span className="catalog-pick-name">{item.name}</span><span className="catalog-pick-price">{item.price_cny == null ? 'Без цены' : formatSomoni(calculateClientPrice(item.price_cny,item.work_price_somoni,item.weight_grams))}</span></button>)}</div> : <p className="subtitle mt-4 text-sm">{catalogSearch ? 'Ничего не найдено.' : 'Каталог пока пуст. Новые фото сохранятся сюда автоматически.'}</p>}</div>}</section>
+      <section className="panel panel-padding catalog-picker"><div className="flex items-center justify-between gap-4"><button type="button" className="min-w-0 text-left" onClick={() => setCatalogOpen(value => !value)} aria-expanded={catalogOpen}><span className="eyebrow">Сохранённые товары</span><h2 className="mt-1 text-lg font-semibold">Выбрать из каталога</h2></button><Link href="/catalog" className="text-button">Весь каталог · {catalog.length}</Link></div>{catalogOpen && <div className="mt-5"><div className="search-field"><Icon name="search" size={17}/><input aria-label="Поиск в каталоге" value={catalogSearch} onChange={event => setCatalogSearch(event.target.value)} placeholder="Найти товар"/></div>{filteredCatalog.length ? <div className="catalog-picker-grid mt-4">{filteredCatalog.map(item => <button key={item.id} type="button" className="catalog-pick-card" onClick={() => addFromCatalog(item)}><span className="catalog-pick-photo">{catalogUrls[item.id] ? <Image unoptimized width={240} height={240} src={catalogUrls[item.id]} alt={item.name}/> : <Icon name="photo" size={24}/>}</span><span className="catalog-pick-name">{item.name}</span><span className="catalog-pick-price">{item.price_cny == null ? 'Без цены' : !rates.ready ? 'Ждём курс' : formatSomoni(calculateClientPrice(item.price_cny,item.work_price_somoni,item.weight_grams,rates.cny,rates.usd))}</span></button>)}</div> : <p className="subtitle mt-4 text-sm">{catalogSearch ? 'Ничего не найдено.' : 'Каталог пока пуст. Новые фото сохранятся сюда автоматически.'}</p>}</div>}</section>
       <details className="panel panel-padding bulk-settings"><summary><Icon name="tune" size={18}/>Общие параметры товаров</summary><p className="subtitle mt-3 text-xs">Для новых фото. Уже добавленные товары изменятся только по кнопке.</p><div className="grid grid-cols-2 gap-3 mt-4"><label className="field">Работа, смн<input aria-label="Общая работа, смн" inputMode="decimal" value={defaults.workPrice} onChange={e => setDefaults(d => ({...d,workPrice:e.target.value}))}/></label><label className="field">Вес, г<input aria-label="Общий вес, г" inputMode="numeric" value={defaults.weightGrams} onChange={e => setDefaults(d => ({...d,weightGrams:e.target.value}))}/></label></div><button className="btn btn-secondary mt-4" type="button" disabled={!products.length} onClick={applyDefaults}>Применить ко всем</button>{bulkNotice && <p className="mt-3 text-xs text-blue-700" role="status">Параметры применены. <button type="button" className="underline" onClick={() => {setProducts(items => items.map(item => {const old = previousPricing.current.find(p => p.id === item.id);return old ? {...item,workPrice:old.workPrice,weightGrams:old.weightGrams} : item}));setBulkNotice(false)}}>Отменить</button></p>}</details>
       {products.map((product,index) => <article key={product.id} className="panel product-editor">
         <div className="product-editor-top"><span className="eyebrow">Товар {String(index+1).padStart(2,'0')}{product.catalogProductId ? ' · из каталога' : ''}</span><button type="button" className="text-button danger" onClick={() => {if (product.file) {URL.revokeObjectURL(product.preview);previews.current.delete(product.preview)}setProducts(items => items.filter(p => p.id !== product.id))}}>Удалить</button></div>

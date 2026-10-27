@@ -154,3 +154,22 @@ input:focus { outline:none; border-color:#0071e3; box-shadow:0 0 0 3px #0071e318
   :root[data-theme="dark"] .main-nav.nav-mobile { background:rgba(28,28,30,.94);border-color:var(--line); }
   :root[data-theme="dark"] .main-nav.nav-mobile a.active { background:#3a3a3c; }
 }
+
+/* Wallet shares the existing surfaces, spacing and theme. */
+.wallet-metrics {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.wallet-metric {min-width:0;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:20px;display:flex;flex-direction:column;gap:10px}
+.wallet-metric span,.wallet-metric small {font-size:12px;color:var(--muted,#737373)}
+.wallet-metric strong {font-size:clamp(20px,3vw,30px);letter-spacing:-.04em;overflow-wrap:anywhere}
+.wallet-cash {border-color:var(--accent,#2563eb)}
+.wallet-expected {color:var(--muted,#737373);background:var(--card-soft)}
+.wallet-row {display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.wallet-form-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.wallet-page select,.wallet-row select {border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--card);color:inherit;max-width:100%;min-width:0}
+.wallet-page .field input,.wallet-page .field select {width:100%;min-width:0}
+.wallet-check {display:flex;align-items:center;gap:10px;font-size:14px}
+.wallet-entry {border-top:1px solid var(--line);padding:18px 0;overflow-wrap:anywhere}
+.wallet-voided {opacity:.55}
+.wallet-amount {white-space:nowrap;font-size:18px}
+.wallet-progress {width:100%;height:8px;accent-color:var(--accent,#2563eb)}
+@media(min-width:1000px){.wallet-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:600px){.wallet-form-grid{grid-template-columns:1fr}.wallet-metric{padding:14px}.wallet-row .field{flex-basis:100%}.nav-mobile{overflow-x:auto}.nav-mobile a{flex-shrink:0;font-size:11px}}

@@ -6,8 +6,8 @@ import { parseDecimal, restoreCart, safeSupplierUrl, validPricing } from '../lib
 import type { Order } from '../lib/types.ts'
 
 test('pricing includes purchase, cargo and buyer work without floating point tails', () => {
-  assert.equal(calculateCargo(80), 2.4)
-  assert.equal(calculateClientPrice(35, 5, 80), 56.4)
+  assert.equal(calculateCargo(120, 9.224), 3.87)
+  assert.equal(calculateClientPrice(35, 5, 120, 1.45, 9.224), 59.62)
   assert.equal(roundMoney(1.005), 1.01)
 })
 test('pricing requires explicit prices, accepts Russian decimals and rejects invalid weights/URLs', () => {

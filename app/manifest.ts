@@ -3,9 +3,9 @@ import type { MetadataRoute } from 'next'
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: '/',
-    name: 'Bayer',
-    short_name: 'Bayer',
-    description: 'Bayer — заказы для закупок',
+    name: 'Мой баланс',
+    short_name: 'Мой баланс',
+    description: 'Мой баланс — заказы и личные деньги',
     start_url: '/',
     scope: '/',
     display: 'standalone',
