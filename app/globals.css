@@ -198,3 +198,26 @@ input:focus { outline:none; border-color:#0071e3; box-shadow:0 0 0 3px #0071e318
 @media(min-width:641px){.finance-space{padding-top:12px}.money-page-heading{margin-bottom:30px}.money-view{gap:23px}.money-sheet{bottom:20px;border-radius:28px;max-height:calc(100dvh - 40px)}.money-sheet-body{padding-bottom:27px}.sheet-handle{display:none}.money-toast{bottom:32px}.money-actions button:hover{border-color:#b2b9e7}.money-card .activity-main:hover .activity-copy strong{color:var(--accent)}}
 .form-pair{grid-template-columns:repeat(2,minmax(0,1fr))}.money-form .field{min-width:0}.money-form input[type="date"]{min-width:0;max-width:100%;height:48px}
 .sheet-heading{position:sticky;top:0;z-index:2;background:var(--card)}.sheet-heading .icon-button{width:44px;height:44px;min-width:44px}.category-grid button{min-height:44px}
+/* App interactions: animate one small layer, never the keyboard's geometry. */
+.money-view{animation:app-enter .14s ease-out both}.money-view>*{animation:none}
+@keyframes app-enter{from{opacity:.65;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.money-sheet{overflow:hidden;max-height:calc(var(--sheet-height,100dvh) - 12px);bottom:var(--sheet-bottom,0px);animation:sheet-enter .18s cubic-bezier(.2,.8,.2,1)}
+.money-sheet.closing{animation-duration:.12s}.money-sheet::backdrop{animation-duration:.14s}
+.money-sheet-body{display:flex;flex-direction:column;max-height:inherit;padding:9px 0 0;overflow:hidden}
+.sheet-handle{flex-shrink:0}.sheet-heading{position:relative;flex-shrink:0;margin:0;padding:0 21px 10px;min-height:56px}
+.money-sheet-content{min-height:0;overflow-y:auto;overscroll-behavior:contain;scroll-padding:16px 0 80px;padding:6px 21px calc(20px + env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch}
+.money-sheet[data-keyboard=open] .money-sheet-content{padding-bottom:12px}
+.money-sheet-content input,.money-sheet-content select{scroll-margin:16px 0 80px}
+.money-form .money-submit{position:sticky;bottom:0;z-index:1;box-shadow:0 0 0 8px var(--card)}
+.money-form input,.money-form select{transition:border-color .1s,background-color .1s;min-height:48px}
+.money-form input:focus{box-shadow:none}.money-form .amount-field input:focus-visible{outline-width:2px}
+body[data-money-sheet] .nav-mobile{visibility:hidden}
+.main-nav a,.wallet-shortcuts button,.money-actions button{transition:transform .1s,background-color .12s,color .12s}
+.wallet-shortcuts button:active,.money-actions button:active{transform:scale(.97)}
+.report-bar>span{animation-duration:.2s}
+.app-connection{font-size:12px;line-height:1.5;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin-bottom:15px;color:var(--muted)}
+.install-app{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;color:var(--muted);margin:18px 0 0;padding:12px 14px;border:1px solid var(--line);border-radius:16px;background:var(--card)}
+.install-app button{min-height:44px;min-width:44px;color:var(--accent);font-weight:600}.install-app p{line-height:1.5}.install-app strong{display:block;color:var(--foreground);font-size:13px}
+@media(min-width:641px){.money-sheet{bottom:calc(var(--sheet-bottom,0px) + 20px);max-height:calc(var(--sheet-height,100dvh) - 40px)}}
+@media(display-mode:standalone){html,body{overscroll-behavior-y:none}.app-shell{min-height:100svh}}
+.keyboard-dismiss{display:none;min-width:44px;min-height:44px;color:var(--accent);font-size:26px;margin-left:auto}.money-sheet[data-keyboard=open] .keyboard-dismiss{display:block}.sheet-heading h2{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

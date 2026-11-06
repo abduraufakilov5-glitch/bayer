@@ -14,12 +14,14 @@ import {
   type Currency,
 } from '@/lib/wallet'
 import { useRates } from './exchange-rates'
-import { useWalletOwner } from './wallet-store'
+import { useWalletOwner, useWalletWriter } from './wallet-store'
 export function checkMoney(result: { error: { message: string } | null }) {
   if (!result.error) return
   const message = result.error.message
   throw new Error(
-    message.includes('exceeds remaining')
+    /fetch|network|load failed|abort|timeout/i.test(message)
+      ? 'Нет соединения с сервером. Запись не подтверждена. Проверьте интернет и повторите — введённые данные сохранены в форме.'
+      : message.includes('exceeds remaining')
       ? 'Сумма больше остатка долга.'
       : message.includes('already changed')
         ? 'Запись уже изменена. Обновите историю.'
@@ -50,10 +52,11 @@ export function EntryForm({
   preset?: EntryPreset
   original?: Entry
   work: boolean
-  onSaved: () => Promise<void>
+  onSaved: (locallyUpdated?: boolean) => Promise<void>
   onBusy: (busy: boolean) => void
 }) {
   const ownerId = useWalletOwner()
+  const commitEntry = useWalletWriter()
   const { rates } = useRates(),
     locked = useRef(false),
     requestId = useRef<string | null>(null)
@@ -158,7 +161,13 @@ export function EntryForm({
         const result = await client
           .from('wallet_entries')
           .insert({ ...payload, id: requestId.current, owner_id: ownerId })
+          .select('*').single()
         if (result.error?.code !== '23505') checkMoney(result)
+        if (result.data) {
+          commitEntry(result.data as Entry)
+          await onSaved(true)
+          return
+        }
       }
       await onSaved()
     } catch (cause) {
@@ -202,7 +211,7 @@ export function EntryForm({
         <label className="amount-field">
           <span>Сумма · {a?.currency && a.currency !== 'TJS' ? a.currency : 'смн'}</span>
           <input
-            autoFocus
+            enterKeyHint="done"
             name="amount"
             autoComplete="off"
             inputMode="decimal"
@@ -414,7 +423,7 @@ export function AccountForm({
           <input
             name="name"
             autoComplete="off"
-            autoFocus
+            enterKeyHint="next"
             required
             maxLength={80}
             placeholder="Например, карта Алиф…"
@@ -556,7 +565,7 @@ export function DebtForm({
         <label className="field">
           Кто
           <input
-            autoFocus
+            enterKeyHint="next"
             required
             name="person"
             autoComplete="off"

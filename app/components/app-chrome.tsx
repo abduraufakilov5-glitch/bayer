@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { Navigation, WorkNavigation } from './navigation'
 import { ThemeToggle } from './theme-toggle'
 import { Icon } from './icons'
+import { AppExperience, ConnectionStatus } from './app-experience'
 export function AppChrome({ children }: { children: ReactNode }) {
   const wallet = usePathname().startsWith('/wallet')
   return (
@@ -38,7 +39,9 @@ export function AppChrome({ children }: { children: ReactNode }) {
       </header>
       <main id="main-content" className="workspace">
         <WorkNavigation />
+        <ConnectionStatus />
         {children}
+        <AppExperience wallet={wallet} />
       </main>
       <Navigation mobile />
     </div>
