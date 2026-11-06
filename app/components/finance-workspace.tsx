@@ -56,7 +56,7 @@ function prettyDate(value: string) {
 }
 export function FinanceWorkspace({ work = false }: { work?: boolean }) {
   const ownerId = useWalletOwner()
-  const { data, loading, error: loadError, reload } = useWalletStore(),
+  const { data, loading, refreshing, error: loadError, reload } = useWalletStore(),
     { rates } = useRates(),
     params = useSearchParams()
   const [section, setSection] = useState<Section>(work ? 'plans' : 'home'),
@@ -171,10 +171,10 @@ export function FinanceWorkspace({ work = false }: { work?: boolean }) {
     if (toastTimer.current) clearTimeout(toastTimer.current)
     toastTimer.current = setTimeout(() => setMessage(''), 2600)
   }
-  async function saved() {
-    await reload()
+  async function saved(locallyUpdated = false) {
     setSheet(null)
     toast('Сохранено')
+    if (!locallyUpdated) void reload()
   }
   async function action(fn: () => Promise<void>, text = 'Готово') {
     if (mutation.current) return
@@ -375,9 +375,9 @@ export function FinanceWorkspace({ work = false }: { work?: boolean }) {
               <section className="balance-hero" aria-label="Текущий баланс">
                 <div className="hero-top">
                   <span>Доступно сейчас</span>
-                  <span className="hero-live">
+                  <span className="hero-live" role="status">
                     <i />
-                    На всех счетах
+                    {refreshing ? 'Обновляем баланс…' : 'На всех счетах'}
                   </span>
                 </div>
                 <div className="balance-number">

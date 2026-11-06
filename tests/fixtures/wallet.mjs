@@ -68,6 +68,13 @@ export async function walletFixture(req,res,url) {
    const rows=(await db.query(`select * from ${table}`)).rows
    result=req.headers.accept?.includes('vnd.pgrst.object')?rows[0]??null:rows
   }
+  // PGlite returns DATE columns as JS Dates; PostgREST serializes them as
+  // YYYY-MM-DD. INSERT RETURNING must match wallet_snapshot's JSON dates.
+  const restRow = row => row && typeof row === 'object' ? {...row,
+    ...('entry_date' in row ? {entry_date: row.entry_date instanceof Date ? row.entry_date.toISOString().slice(0,10) : row.entry_date} : {}),
+    ...('due_date' in row ? {due_date: row.due_date instanceof Date ? row.due_date.toISOString().slice(0,10) : row.due_date} : {}),
+  } : row
+  if(!rpc)result=Array.isArray(result)?result.map(restRow):restRow(result)
   res.end(JSON.stringify(result));return true
  }catch(error){res.statusCode=400;res.end(JSON.stringify({message:error.message,code:error.code}));return true}
 }

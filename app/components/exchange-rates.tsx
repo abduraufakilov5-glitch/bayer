@@ -72,10 +72,10 @@ export function RatesProvider({ children }: { children: ReactNode }) {
       if (document.visibilityState === 'visible') void refresh()
     }
     const timer = setInterval(focus, 3600000)
-    window.addEventListener('focus', focus)
+    document.addEventListener('visibilitychange', focus)
     return () => {
       clearInterval(timer)
-      window.removeEventListener('focus', focus)
+      document.removeEventListener('visibilitychange', focus)
     }
   }, [refresh])
   const cny = mode === 'manual' ? parseRate(manualCny) : (rates?.cny ?? NaN),

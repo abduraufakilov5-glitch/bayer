@@ -12,6 +12,7 @@ export function Navigation({ mobile = false }: { mobile?: boolean }) {
     >
       <Link
         href="/wallet"
+        prefetch={true}
         aria-current={wallet ? 'page' : undefined}
         className={wallet ? 'active' : ''}
       >
@@ -20,6 +21,7 @@ export function Navigation({ mobile = false }: { mobile?: boolean }) {
       </Link>
       <Link
         href="/dashboard"
+        prefetch={true}
         aria-current={!wallet ? 'page' : undefined}
         className={!wallet ? 'active' : ''}
       >
@@ -42,6 +44,7 @@ export function WorkNavigation() {
         <Link
           key={item.href}
           href={item.href}
+          prefetch={true}
           className={pathname === item.href ? 'active' : ''}
           aria-current={pathname === item.href ? 'page' : undefined}
         >
