@@ -1,12 +1,12 @@
 'use client'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 export function MoneySheet({ title, children, onClose, busy = false }: {
   title: string; children: ReactNode; onClose: () => void; busy?: boolean
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [closing, setClosing] = useState(false)
-  useEffect(() => {
+  useLayoutEffect(() => {
     const node = dialog.current
     if (!node) return
     const body = document.body, scrollY = window.scrollY
